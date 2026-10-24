@@ -43,3 +43,39 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Private product strategy, planning and research (local only)
+/docs/
+/private/
+/research/
+/experiments/
+/notes/
+/handoffs/
+/prompts/
+/recordings/
+/data/private/
+/data/recorded/
+/exports/
+/backups/
+AGENTS.md
+**/AGENTS.md
+**/*PLAN*.md
+**/*STRATEGY*.md
+**/*HANDOFF*.md
+**/*RESEARCH*.md
+**/PRODUCT.md
+
+# Credentials and local data, including nested copies
+**/.env*
+**/.dev.vars*
+**/credentials*.json
+**/*service-account*.json
+**/secrets.*
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
