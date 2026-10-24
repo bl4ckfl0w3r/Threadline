@@ -17,3 +17,52 @@
   --coral:#ac4533;--coral-block:#ce6348;--coral-soft:#eed6ca;--citrine:#ddc45d;--rail:#d4dfcf;
 }
 .theme-dot.tide{background:#4054c7}.theme-dot.clay{background:#b64a35}.theme-dot.grove{background:#237453}
+
+/* Glass composition. Keep background, transparency and contrast together. */
+:root,[data-theme="tide"]{
+  --canvas:#b7c3df;--ink:#25304b;--muted:#536078;--line:rgb(49 67 109 / 16%);
+  --surface:rgb(242 246 255 / 63%);--surface-soft:rgb(225 233 250 / 48%);
+  --accent:#4259a6;--accent-hover:#32488d;--accent-ink:#334c94;--accent-soft:rgb(173 193 235 / 48%);
+  --coral:#a64e44;--coral-block:#c4766a;--coral-soft:rgb(232 178 161 / 56%);
+  --citrine:#d5b972;--citrine-soft:rgb(238 216 161 / 58%);--citrine-ink:#695626;
+  --field-cool:#879dca;--field-deep:#5c78b1;--field-warm:#d69b86;--field-light:#ded9c4;
+  --glass:rgb(236 243 255 / 46%);--glass-heavy:rgb(242 246 253 / 72%);--glass-edge:rgb(255 255 255 / 53%);
+  --glass-inset:inset 0 1px 0 rgb(255 255 255 / 64%),inset 1px 0 0 rgb(255 255 255 / 25%);
+  --glass-shadow:0 14px 40px rgb(39 57 99 / 8%),0 2px 7px rgb(255 255 255 / 9%);
+  --on-accent:#f7f7f0;--on-colour:#f9f5ee;
+}
+[data-theme="clay"]{
+  --canvas:#d6b6aa;--ink:#452f3f;--muted:#70586a;--line:rgb(93 55 76 / 16%);
+  --surface:rgb(255 240 229 / 63%);--surface-soft:rgb(236 211 208 / 45%);
+  --accent:#96513f;--accent-hover:#7e4032;--accent-ink:#7e4233;--accent-soft:rgb(222 175 159 / 52%);
+  --coral:#6b579c;--coral-block:#8c7bb1;--coral-soft:rgb(185 166 212 / 47%);
+  --field-cool:#a39fc5;--field-deep:#8278aa;--field-warm:#d08e76;--field-light:#e1cbaa;
+  --glass:rgb(255 237 225 / 45%);--glass-heavy:rgb(255 241 231 / 72%);
+}
+[data-theme="grove"]{
+  --canvas:#aebfb5;--ink:#233d35;--muted:#4c655a;--line:rgb(38 77 58 / 16%);
+  --surface:rgb(237 247 233 / 62%);--surface-soft:rgb(208 228 210 / 43%);
+  --accent:#2d6c56;--accent-hover:#235440;--accent-ink:#285d48;--accent-soft:rgb(166 206 179 / 52%);
+  --coral:#9d5149;--coral-block:#bf7a6e;--coral-soft:rgb(227 180 162 / 52%);
+  --field-cool:#90b0ad;--field-deep:#568b85;--field-warm:#d49c83;--field-light:#d5d2ae;
+  --glass:rgb(230 246 232 / 43%);--glass-heavy:rgb(240 248 234 / 72%);
+}
+
+/* Contrast pass: distinct complementary fields, softened edges rather than faded colour. */
+:root,[data-theme="tide"]{
+  --canvas:#7c95bf;--field-cool:#41639d;--field-deep:#284d87;--field-warm:#d9815e;--field-light:#d6dccb;
+  --accent:#304c94;--accent-hover:#233d7b;--accent-ink:#273e79;
+  --glass:rgb(226 237 253 / 48%);--glass-heavy:rgb(237 244 252 / 77%);--coral-soft:rgb(235 160 123 / 65%);
+  --coral:#99432f;--coral-block:#cc6d4a;--glass-shadow:0 16px 44px rgb(23 47 82 / 14%),0 2px 7px rgb(255 255 255 / 8%);
+}
+[data-theme="clay"]{
+  --canvas:#b48e99;--field-cool:#5a5c9c;--field-deep:#434578;--field-warm:#cf7954;--field-light:#e2c8a3;
+  --accent:#8f402e;--accent-hover:#733123;--accent-ink:#743424;
+  --glass:rgb(249 230 222 / 48%);--glass-heavy:rgb(250 237 225 / 78%);--coral-soft:rgb(167 155 209 / 61%);
+}
+[data-theme="grove"]{
+  --canvas:#79a39a;--field-cool:#347d79;--field-deep:#1c5d61;--field-warm:#d88960;--field-light:#d4d1a8;
+  --accent:#19574b;--accent-hover:#124639;--accent-ink:#174e40;
+  --glass:rgb(220 242 231 / 47%);--glass-heavy:rgb(237 247 231 / 77%);--coral-soft:rgb(237 168 126 / 62%);
+  --coral:#98482e;--coral-block:#c46c45;
+}
