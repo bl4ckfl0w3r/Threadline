@@ -7,7 +7,7 @@ export function sourceURL(value:string) {
   if(url.protocol!=='https:' || url.username || url.password || (url.port && url.port!=='443') || !allowed.includes(url.hostname))throw new AppError('Automatic reading is not enabled for this website. Open the page and attach an excerpt instead.',422,'source_host_unavailable');
   return url;
 }
-function textFromHTML(html:string) {return html.replace(/<(script|style|nav|footer|header)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/\s+/g,' ').trim();}
+function textFromHTML(html:string) {return html.replace(/<(script|style|nav|footer|header)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&#(x[0-9a-f]+|[0-9]+);/gi,(_,code:string)=>{const value=code[0].toLowerCase()==='x'?parseInt(code.slice(1),16):parseInt(code,10);return value>0 && value<=0x10ffff?String.fromCodePoint(value):' ';}).replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/\s+/g,' ').trim();}
 export async function inspect(owner:string,file:CaseFile,leadId:string,value:string) {
   const lead=file.leads.find(l=>l.id===leadId);if(!lead)throw new AppError('Choose a place in this case.');
   let url=sourceURL(value);

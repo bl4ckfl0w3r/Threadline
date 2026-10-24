@@ -5,6 +5,6 @@ const examples=import.meta.glob('../data/recorded/example.json',{eager:true,impo
 export function exampleCase(id:string):CaseFile {
   const recorded=Object.values(examples)[0] as Partial<CaseFile>|undefined;
   const file=blankCase(id);
-  if(!recorded)return {...file,title:'An unidentified stop',question:'Which premises could match a witness’s remembered book browsing and live music?',notes:'Fictional example: a witness cannot identify one stop in their timeline. Confirm the area, period and cultural references before researching.',activity:'Browsing books and hearing live music',mode:'recorded'};
+  if(!recorded)return {...file,title:'An unidentified stop',question:'Which record could identify a missing stop in the reported timeline?',notes:'Fictional case: someone reports missing property and remembers an unidentified stop during the interval before noticing the loss. Confirm the account, area, dates and supplied references before researching.',caseContext:{known:'Record the reported last sighting and when the loss was noticed, including their sources.',gap:'Identify the unknown stop and a record that could corroborate it.'},activity:'Browsing books and hearing live music',mode:'recorded'};
   return {...file,...structuredClone(recorded),id,revision:0,createdAt:file.createdAt,updatedAt:file.updatedAt,agent:{steps:0,status:'idle',reason:''}};
 }
