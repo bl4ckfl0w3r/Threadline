@@ -1,12 +1,19 @@
-/* All product colours live here. Themes stay in light mode. */
+/* Edit these tokens to recolour the entire workspace. All themes are matte and light. */
 :root,[data-theme="tide"]{
-  --canvas:#f4f6fa;--surface:#ffffff;--surface-soft:#edf0f6;--ink:#202b43;--muted:#637089;--line:#dce2ed;
-  --accent:#375fc5;--accent-hover:#294da9;--accent-soft:#e9effc;--accent-ink:#264b9c;
-  --coral:#bd5144;--coral-soft:#f9e8e2;--citrine:#e7cb68;--citrine-soft:#fbf3d9;--citrine-ink:#70571a;
-  --success:#356f5f;--success-soft:#e8f2ec;--danger:#a8323c;--danger-soft:#fcebee;
-  --shadow:0 12px 42px rgb(37 60 106 / 5%);--on-accent:#ffffff;
+  --canvas:#e9e9f2;--surface:#f7f5eb;--surface-soft:#e4e3ee;--ink:#272943;--muted:#65657b;--line:#d4d3df;
+  --accent:#4054c7;--accent-hover:#3043ad;--accent-soft:#dcdff4;--accent-ink:#2f409d;
+  --coral:#bd4c32;--coral-block:#d66b4c;--coral-soft:#f3dacf;--citrine:#e5c660;--citrine-soft:#f0e4b4;--citrine-ink:#67521e;
+  --success:#2c6b50;--success-soft:#dceade;--danger:#a32e3a;--danger-soft:#f3dce0;
+  --shadow:0 8px 28px rgb(39 41 67 / 4%);--on-accent:#fffaf1;--on-colour:#fffaf1;--rail:#dedfeb;
 }
-[data-theme="clay"]{--accent:#a84838;--accent-hover:#913c30;--accent-soft:#f8eae4;--accent-ink:#883b30;--coral:#585eaa;--coral-soft:#eeedf8;--citrine:#d7bd66;--canvas:#f7f5f3;--surface-soft:#f0eeeb;--line:#e4ded8;--ink:#332e36;--muted:#736b76;}
-[data-theme="grove"]{--accent:#33745d;--accent-hover:#255d49;--accent-soft:#e6f1ea;--accent-ink:#285f4c;--coral:#a34d71;--coral-soft:#f6e7ee;--citrine:#d5c66d;--canvas:#f3f6f3;--surface-soft:#ebf0eb;--line:#dbe4dd;--ink:#273b34;--muted:#62756a;}
-
-.theme-dot.tide{background:#375fc5}.theme-dot.clay{background:#a84838}.theme-dot.grove{background:#33745d}
+[data-theme="clay"]{
+  --canvas:#eee2d8;--surface:#f6eddd;--surface-soft:#e8d9cd;--ink:#392d34;--muted:#79646a;--line:#d9c9bc;
+  --accent:#b64a35;--accent-hover:#9b3d2b;--accent-soft:#f0d6ca;--accent-ink:#913c2b;
+  --coral:#4c4b9c;--coral-block:#6863b2;--coral-soft:#e0dcef;--citrine:#dfc15b;--rail:#e4d3c6;
+}
+[data-theme="grove"]{
+  --canvas:#e3eadf;--surface:#f2f1e2;--surface-soft:#dbe4d6;--ink:#243b30;--muted:#617164;--line:#ccd7c8;
+  --accent:#237453;--accent-hover:#175d41;--accent-soft:#cddfcf;--accent-ink:#215d43;
+  --coral:#ac4533;--coral-block:#ce6348;--coral-soft:#eed6ca;--citrine:#ddc45d;--rail:#d4dfcf;
+}
+.theme-dot.tide{background:#4054c7}.theme-dot.clay{background:#b64a35}.theme-dot.grove{background:#237453}
