@@ -1,68 +1,30 @@
-/* Edit these tokens to recolour the entire workspace. All themes are matte and light. */
+/* Threadline colour system. Flat, complementary colours; no neon or gradients. */
 :root,[data-theme="tide"]{
-  --canvas:#e9e9f2;--surface:#f7f5eb;--surface-soft:#e4e3ee;--ink:#272943;--muted:#65657b;--line:#d4d3df;
-  --accent:#4054c7;--accent-hover:#3043ad;--accent-soft:#dcdff4;--accent-ink:#2f409d;
-  --coral:#bd4c32;--coral-block:#d66b4c;--coral-soft:#f3dacf;--citrine:#e5c660;--citrine-soft:#f0e4b4;--citrine-ink:#67521e;
-  --success:#2c6b50;--success-soft:#dceade;--danger:#a32e3a;--danger-soft:#f3dce0;
-  --shadow:0 8px 28px rgb(39 41 67 / 4%);--on-accent:#fffaf1;--on-colour:#fffaf1;--rail:#dedfeb;
+  --canvas:#e8e1d2;--ink:#202f40;--muted:#59616b;--line:#c3bdaf;
+  --surface:#eee8dc;--surface-soft:#ded8cc;
+  --accent:#285a8f;--accent-hover:#1e4774;--accent-ink:#234e7d;--accent-soft:#d0dbe2;
+  --coral:#ac482d;--coral-block:#d86d49;--coral-soft:#e6c4b2;
+  --citrine:#d4b459;--citrine-soft:#e8d9ab;--citrine-ink:#68511d;
+  --success:#316650;--success-soft:#d6e4d4;--danger:#9a2c34;--danger-soft:#efd3d1;
+  --field-cool:#285a8f;--field-warm:#d86d49;--on-accent:#f7f1e5;--on-colour:#f7f1e5;
+  --glass:rgb(234 238 230 / 49%);--glass-heavy:rgb(240 238 225 / 78%);--glass-edge:rgb(250 248 238 / 63%);
+  --glass-inset:inset 0 1px 0 rgb(255 255 255 / 45%);--glass-shadow:none;--shadow:none;--rail:transparent;
 }
 [data-theme="clay"]{
-  --canvas:#eee2d8;--surface:#f6eddd;--surface-soft:#e8d9cd;--ink:#392d34;--muted:#79646a;--line:#d9c9bc;
-  --accent:#b64a35;--accent-hover:#9b3d2b;--accent-soft:#f0d6ca;--accent-ink:#913c2b;
-  --coral:#4c4b9c;--coral-block:#6863b2;--coral-soft:#e0dcef;--citrine:#dfc15b;--rail:#e4d3c6;
+  --canvas:#eadbca;--ink:#3c2935;--muted:#6d5860;--line:#cbb8a9;
+  --surface:#f0e2d1;--surface-soft:#dfcdbb;
+  --accent:#844238;--accent-hover:#6c342b;--accent-ink:#76382e;--accent-soft:#e5c6b6;
+  --coral:#53477f;--coral-block:#6b5b9c;--coral-soft:#d1c5de;
+  --field-cool:#a8533c;--field-warm:#6b5b9c;--glass:rgb(245 222 204 / 48%);--glass-heavy:rgb(245 231 211 / 78%);
 }
 [data-theme="grove"]{
-  --canvas:#e3eadf;--surface:#f2f1e2;--surface-soft:#dbe4d6;--ink:#243b30;--muted:#617164;--line:#ccd7c8;
-  --accent:#237453;--accent-hover:#175d41;--accent-soft:#cddfcf;--accent-ink:#215d43;
-  --coral:#ac4533;--coral-block:#ce6348;--coral-soft:#eed6ca;--citrine:#ddc45d;--rail:#d4dfcf;
+  --canvas:#e5e1cc;--ink:#243930;--muted:#59685a;--line:#c3c3ad;
+  --surface:#ece9d7;--surface-soft:#d8d9c3;
+  --accent:#226b58;--accent-hover:#185341;--accent-ink:#205944;--accent-soft:#cbdcc7;
+  --coral:#a5482e;--coral-block:#d7724d;--coral-soft:#e7c8ac;
+  --field-cool:#267a6b;--field-warm:#d7724d;--glass:rgb(227 241 217 / 48%);--glass-heavy:rgb(239 242 218 / 78%);
 }
-.theme-dot.tide{background:#4054c7}.theme-dot.clay{background:#b64a35}.theme-dot.grove{background:#237453}
+.theme-dot.tide{background:#285a8f}.theme-dot.clay{background:#a8533c}.theme-dot.grove{background:#267a6b}
 
-/* Glass composition. Keep background, transparency and contrast together. */
-:root,[data-theme="tide"]{
-  --canvas:#b7c3df;--ink:#25304b;--muted:#536078;--line:rgb(49 67 109 / 16%);
-  --surface:rgb(242 246 255 / 63%);--surface-soft:rgb(225 233 250 / 48%);
-  --accent:#4259a6;--accent-hover:#32488d;--accent-ink:#334c94;--accent-soft:rgb(173 193 235 / 48%);
-  --coral:#a64e44;--coral-block:#c4766a;--coral-soft:rgb(232 178 161 / 56%);
-  --citrine:#d5b972;--citrine-soft:rgb(238 216 161 / 58%);--citrine-ink:#695626;
-  --field-cool:#879dca;--field-deep:#5c78b1;--field-warm:#d69b86;--field-light:#ded9c4;
-  --glass:rgb(236 243 255 / 46%);--glass-heavy:rgb(242 246 253 / 72%);--glass-edge:rgb(255 255 255 / 53%);
-  --glass-inset:inset 0 1px 0 rgb(255 255 255 / 64%),inset 1px 0 0 rgb(255 255 255 / 25%);
-  --glass-shadow:0 14px 40px rgb(39 57 99 / 8%),0 2px 7px rgb(255 255 255 / 9%);
-  --on-accent:#f7f7f0;--on-colour:#f9f5ee;
-}
-[data-theme="clay"]{
-  --canvas:#d6b6aa;--ink:#452f3f;--muted:#70586a;--line:rgb(93 55 76 / 16%);
-  --surface:rgb(255 240 229 / 63%);--surface-soft:rgb(236 211 208 / 45%);
-  --accent:#96513f;--accent-hover:#7e4032;--accent-ink:#7e4233;--accent-soft:rgb(222 175 159 / 52%);
-  --coral:#6b579c;--coral-block:#8c7bb1;--coral-soft:rgb(185 166 212 / 47%);
-  --field-cool:#a39fc5;--field-deep:#8278aa;--field-warm:#d08e76;--field-light:#e1cbaa;
-  --glass:rgb(255 237 225 / 45%);--glass-heavy:rgb(255 241 231 / 72%);
-}
-[data-theme="grove"]{
-  --canvas:#aebfb5;--ink:#233d35;--muted:#4c655a;--line:rgb(38 77 58 / 16%);
-  --surface:rgb(237 247 233 / 62%);--surface-soft:rgb(208 228 210 / 43%);
-  --accent:#2d6c56;--accent-hover:#235440;--accent-ink:#285d48;--accent-soft:rgb(166 206 179 / 52%);
-  --coral:#9d5149;--coral-block:#bf7a6e;--coral-soft:rgb(227 180 162 / 52%);
-  --field-cool:#90b0ad;--field-deep:#568b85;--field-warm:#d49c83;--field-light:#d5d2ae;
-  --glass:rgb(230 246 232 / 43%);--glass-heavy:rgb(240 248 234 / 72%);
-}
-
-/* Contrast pass: distinct complementary fields, softened edges rather than faded colour. */
-:root,[data-theme="tide"]{
-  --canvas:#7c95bf;--field-cool:#41639d;--field-deep:#284d87;--field-warm:#d9815e;--field-light:#d6dccb;
-  --accent:#304c94;--accent-hover:#233d7b;--accent-ink:#273e79;
-  --glass:rgb(226 237 253 / 48%);--glass-heavy:rgb(237 244 252 / 77%);--coral-soft:rgb(235 160 123 / 65%);
-  --coral:#99432f;--coral-block:#cc6d4a;--glass-shadow:0 16px 44px rgb(23 47 82 / 14%),0 2px 7px rgb(255 255 255 / 8%);
-}
-[data-theme="clay"]{
-  --canvas:#b48e99;--field-cool:#5a5c9c;--field-deep:#434578;--field-warm:#cf7954;--field-light:#e2c8a3;
-  --accent:#8f402e;--accent-hover:#733123;--accent-ink:#743424;
-  --glass:rgb(249 230 222 / 48%);--glass-heavy:rgb(250 237 225 / 78%);--coral-soft:rgb(167 155 209 / 61%);
-}
-[data-theme="grove"]{
-  --canvas:#79a39a;--field-cool:#347d79;--field-deep:#1c5d61;--field-warm:#d88960;--field-light:#d4d1a8;
-  --accent:#19574b;--accent-hover:#124639;--accent-ink:#174e40;
-  --glass:rgb(220 242 231 / 47%);--glass-heavy:rgb(237 247 231 / 77%);--coral-soft:rgb(237 168 126 / 62%);
-  --coral:#98482e;--coral-block:#c46c45;
-}
+:root,[data-theme="tide"],[data-theme="grove"]{--on-warm:#1e211e}
+[data-theme="clay"]{--on-warm:#f7f1e5}
