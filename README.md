@@ -18,6 +18,26 @@ The development server supports a local preview identity. Production requires au
 
 Optional recorded examples are local files under `data/recorded/`. They are excluded from Git; without them the application opens a fictional starter case without recorded results. Fresh cases and live tools do not require recordings.
 
+## Application routes
+
+- `/` — entry with separate workspace and guided-demo choices.
+- `/workspace` — saved cases, cultural references, candidate results, sources and enquiry drafting.
+- `/demo` — a replay of an optional locally installed recording; it does not call a live model.
+
+The colour tokens are centralised in `app/theme.css`. Interface styling is in `app/globals.css`; the workspace views and state hook are in `components/threadline/`.
+
+## Current limitations
+
+The model adapter requires separately configured server credentials. A successful build does not establish that model access, production authentication or a real D1 database is configured. Production deployment still needs those bindings and a trusted authentication boundary.
+
+The recorded demo data, local case database and internal handoff are intentionally absent from a clone. `/api/demo` returns an explicit unavailable response when a compatible recording is not installed. Do not add fabricated provider results to make a clean clone look live. The fallback starter is only a blank fictional example.
+
+## Repository handling
+
+Keep credentials in server-side configuration and preserve the private-file exclusions in `.gitignore`. Review reachable Git history as well as the current files before publishing. Private repository visibility does not make it appropriate to commit credentials, local case data or research records.
+
+Third-party notices remain alongside their vendored sources. An application-wide open-source licence has not yet been selected.
+
 ## Checks
 
 - `pnpm typecheck`
