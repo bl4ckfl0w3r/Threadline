@@ -13,3 +13,19 @@ test('unsupported actions are rejected before a provider request',()=>{assert.eq
 test('export preserves source provenance and enquiry limits',()=>{const file=blankCase('a');const lead={id:'l',name:'Bookshop',address:'Unknown',tags:[],introducedBy:'q'};file.leads=[lead];file.enquiry=draftEnquiry(file,lead);const text=exportBrief(file);assert.match(text,/does not establish a visit/);assert.match(text,/Unavailable response/);assert.match(text,/No sources|## Sources/);});
 test('case purpose survives edits and is carried into the enquiry and export',()=>{const file=applyEdits(blankCase('a'),{question:'Which record resolves the stop?',caseContext:{known:'Reported departure at six.',gap:'The unnamed stop before arrival.'}});const lead={id:'l',name:'A venue',address:'Unknown',tags:[],introducedBy:'q'};file.leads=[lead];file.enquiry=draftEnquiry(file,lead);assert.match(file.enquiry.rationale,/The unnamed stop before arrival/);assert.match(file.enquiry.recordTarget||'',/case-linked receipt/);assert.match(exportBrief(file),/Known timeline\nReported departure at six/);assert.match(exportBrief(file),/Record to check:/);assert.equal(applyEdits(file,{title:'Updated'}).caseContext?.gap,file.caseContext?.gap);});
 test('legacy cases without structured context remain editable',()=>{const file=blankCase('legacy');delete file.caseContext;assert.equal(applyEdits(file,{notes:'Updated account'}).notes,'Updated account');const lead={id:'l',name:'A venue',address:'Unknown',tags:[],introducedBy:'q'};assert.match(draftEnquiry(file,lead).rationale,/Gap to resolve:/);});
+
+// Synthetic unit fixtures; the genuine demonstration recording stays untracked.
+import {buildDemo} from '../lib/demo.ts';
+function demoFixture(){
+ const f=blankCase('test-demo');
+ f.clues=['a','b'].map(id=>({id,label:`Reference ${id}`,kind:'artist' as const,enabled:true,provenance:'supplied_interest' as const}));
+ const q=(id:string,clueIds:string[],leadIds:string[]):Query=>({id,label:id,mode:'recorded',createdAt:'2026-10-24',clueIds,leadIds,affinities:{},warnings:[],receiptId:`recorded:${id}`,geography:{latitude:51,longitude:0,radius:10000},category:'book_store'});
+ f.queries=[q('joint',['a','b'],['first']),q('baseline',[],['first']),q('a',['a'],['candidate']),q('b',['b'],['first'])];
+ f.leads=[{id:'candidate',name:'Candidate venue',address:'Recorded address',tags:[],introducedBy:'a'}];
+ f.sources=[{id:'source',leadId:'candidate',title:'Recorded source',excerpt:'Books and music.',kind:'public_page',mode:'recorded',capturedAt:'2026-10-24',note:'Date unknown.'}];
+ return f;
+}
+test('demo selects a sourced candidate from comparable recorded queries',()=>{const f=demoFixture(),d=buildDemo(f);assert.equal(d?.candidateId,'candidate');assert.equal(d?.singleId,'a');assert.equal(d?.source.note,'Date unknown.');assert.equal(f.revision,0);assert.ok(!('activityLog' in d!));});
+test('demo is unavailable without recording or independent subset controls',()=>{assert.equal(buildDemo(blankCase('empty')),null);const f=demoFixture();f.queries=f.queries.filter(q=>q.id!=='b');assert.equal(buildDemo(f),null);});
+test('demo does not invent novelty for a baseline or joint candidate',()=>{const f=demoFixture();f.queries[1].leadIds.push('candidate');assert.equal(buildDemo(f),null);const other=demoFixture();other.queries[0].leadIds.push('candidate');assert.equal(buildDemo(other),null);});
+test('demo rejects incomparable geography and unrecorded source evidence',()=>{const f=demoFixture();f.queries[2].geography.radius=500;assert.equal(buildDemo(f),null);const other=demoFixture();other.sources[0].mode='live';assert.equal(buildDemo(other),null);});

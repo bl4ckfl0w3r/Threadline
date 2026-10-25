@@ -79,3 +79,6 @@ AGENTS.md
 *.db
 *.db-wal
 *.db-shm
+
+# Local design directions, screenshots and reviews
+/.taste-skill/

@@ -1,30 +1,11 @@
-/* Threadline colour system. Flat, complementary colours; no neon or gradients. */
-:root,[data-theme="tide"]{
-  --canvas:#e8e1d2;--ink:#202f40;--muted:#59616b;--line:#c3bdaf;
-  --surface:#eee8dc;--surface-soft:#ded8cc;
-  --accent:#285a8f;--accent-hover:#1e4774;--accent-ink:#234e7d;--accent-soft:#d0dbe2;
-  --coral:#ac482d;--coral-block:#d86d49;--coral-soft:#e6c4b2;
-  --citrine:#d4b459;--citrine-soft:#e8d9ab;--citrine-ink:#68511d;
-  --success:#316650;--success-soft:#d6e4d4;--danger:#9a2c34;--danger-soft:#efd3d1;
-  --field-cool:#285a8f;--field-warm:#d86d49;--on-accent:#f7f1e5;--on-colour:#f7f1e5;
-  --glass:rgb(234 238 230 / 49%);--glass-heavy:rgb(240 238 225 / 78%);--glass-edge:rgb(250 248 238 / 63%);
-  --glass-inset:inset 0 1px 0 rgb(255 255 255 / 45%);--glass-shadow:none;--shadow:none;--rail:transparent;
+/* Colour source of truth. Every interface colour refers to these roles. */
+:root {
+  --ground: #153f43; --surface: #103237; --deep: #0b242a; --raised: #205257;
+  --red: #b83427; --red-deep: #8f291f; --blue: #2454a4; --blue-deep: #1b4080;
+  --yellow: #dfbd69; --paper: #f1f3f3; --white: #ffffff;
+  --ink: #122c31; --ink-muted: #4e6063; --text: #f1f3f3; --muted: #bdccca;
+  --line: #4d7273; --line-light: #c6d0cb; --danger: #ffd1b7; --success: #d5e2bb;
+  --font: 'Public Sans', sans-serif; --display: 'Barlow Condensed', sans-serif;
+  --ease-out: cubic-bezier(.22,1,.36,1); --ease-in-out: cubic-bezier(.76,0,.24,1);
+  --texture: url('/ink-grain.svg');
 }
-[data-theme="clay"]{
-  --canvas:#eadbca;--ink:#3c2935;--muted:#6d5860;--line:#cbb8a9;
-  --surface:#f0e2d1;--surface-soft:#dfcdbb;
-  --accent:#844238;--accent-hover:#6c342b;--accent-ink:#76382e;--accent-soft:#e5c6b6;
-  --coral:#53477f;--coral-block:#6b5b9c;--coral-soft:#d1c5de;
-  --field-cool:#a8533c;--field-warm:#6b5b9c;--glass:rgb(245 222 204 / 48%);--glass-heavy:rgb(245 231 211 / 78%);
-}
-[data-theme="grove"]{
-  --canvas:#e5e1cc;--ink:#243930;--muted:#59685a;--line:#c3c3ad;
-  --surface:#ece9d7;--surface-soft:#d8d9c3;
-  --accent:#226b58;--accent-hover:#185341;--accent-ink:#205944;--accent-soft:#cbdcc7;
-  --coral:#a5482e;--coral-block:#d7724d;--coral-soft:#e7c8ac;
-  --field-cool:#267a6b;--field-warm:#d7724d;--glass:rgb(227 241 217 / 48%);--glass-heavy:rgb(239 242 218 / 78%);
-}
-.theme-dot.tide{background:#285a8f}.theme-dot.clay{background:#a8533c}.theme-dot.grove{background:#267a6b}
-
-:root,[data-theme="tide"],[data-theme="grove"]{--on-warm:#1e211e}
-[data-theme="clay"]{--on-warm:#f7f1e5}
