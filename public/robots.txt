@@ -1,0 +1,4 @@
+# Crawlers must be allowed to read the noindex HTTP header and HTML metadata.
+# Authentication, not this file, controls access to private case data.
+User-agent: *
+Allow: /

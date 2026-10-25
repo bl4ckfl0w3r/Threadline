@@ -7,5 +7,5 @@ import '@fontsource/barlow-condensed/600.css';
 import '@fontsource/barlow-condensed/700.css';
 import './theme.css';
 import './globals.css';
-export const metadata:Metadata={title:'Threadline — Follow the detail',description:'An investigative workspace for turning cultural observations into sourced next enquiries.',icons:{icon:'/favicon.svg'}};
+export const metadata:Metadata={title:'Threadline — Follow the detail',description:'An investigative workspace for turning cultural observations into sourced next enquiries.',icons:{icon:'/favicon.svg'},robots:{index:false,follow:false,nocache:true,googleBot:{index:false,follow:false,noimageindex:true,nosnippet:true}}};
 export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>;}
