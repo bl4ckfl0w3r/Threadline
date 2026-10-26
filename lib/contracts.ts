@@ -21,6 +21,8 @@ export type EnquiryResponse = {
   unresolved?: string;
   summary?: string;
   receiptId?: string;
+  selectedBranchText?: string;
+  answeredQuestion?: string;
 };
 export type Enquiry = {
   recordTarget?: string;

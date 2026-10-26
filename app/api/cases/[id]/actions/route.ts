@@ -32,6 +32,11 @@ export async function POST(request:Request,context:Context){
       const lead=file.leads.find(l=>l.id===action.leadId);
       if(!lead)throw new AppError('Choose an existing lead for this enquiry.');
       if(action.sourceIds?.some(id=>!file!.sources.some(s=>s.id===id && s.leadId===action.leadId)))throw new AppError('Sources must belong to the selected lead.');
+      if(!file.enquiry || file.enquiry.leadId!==action.leadId){
+        file.enquiry=draftEnquiry(file,lead);
+      }
+      const selectedBranchText=file.enquiry[action.outcomeBranch];
+      const answeredQuestion=file.enquiry.question;
       const receipt=`receipt_resp_${crypto.randomUUID().slice(0,8)}`;
       const enquiryResponse:EnquiryResponse={
         id:crypto.randomUUID(),
@@ -43,11 +48,10 @@ export async function POST(request:Request,context:Context){
         whatChanges:action.whatChanges,
         unresolved:action.unresolved,
         summary:action.summary||`${action.respondent} (${action.outcomeBranch})`,
-        receiptId:receipt
+        receiptId:receipt,
+        selectedBranchText,
+        answeredQuestion,
       };
-      if(!file.enquiry || file.enquiry.leadId!==action.leadId){
-        file.enquiry=draftEnquiry(file,lead);
-      }
       file.enquiry.response=enquiryResponse;
       file.enquiry.responses=[...(file.enquiry.responses||[]),enquiryResponse];
       file.enquiry.outcomeBranch=action.outcomeBranch;

@@ -15,9 +15,11 @@ export const enquiryResponseSchema = z.object({
   unresolved: z.string().trim().max(3000).optional(),
   summary: z.string().trim().max(1000).optional(),
   receiptId: z.string().max(100).optional(),
+  selectedBranchText: z.string().max(2000).optional(),
+  answeredQuestion: z.string().max(2000).optional(),
 });
 
-export const enquirySchema = z.object({
+export const enquirySchema: z.ZodType<Enquiry> = z.lazy(() => z.object({
   recordTarget: z.string().max(2000).optional(),
   leadId: z.string().max(100),
   question: z.string().max(2000),
@@ -32,7 +34,11 @@ export const enquirySchema = z.object({
   outcomeBranch: z.enum(['confirming', 'conflicting', 'unavailable']).optional(),
   revisedActionText: z.string().max(3000).optional(),
   decisionSummary: z.string().max(1000).optional(),
-});
+  history: z.array(z.object({
+    enquiry: z.lazy(() => enquirySchema),
+    recordedAt: z.string(),
+  })).max(100).optional(),
+}));
 
 export const editsSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(), question: z.string().max(2000).optional(), notes: z.string().max(12000).optional(), caseContext: z.object({known:z.string().max(3000),gap:z.string().max(3000)}).optional(), area: z.string().max(160).optional(), latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional(), radius: z.number().int().min(100).max(50000).optional(), startDate: date.optional(), endDate: date.optional(), activity: z.string().max(500).optional(), category: z.enum(['book_store','all_places']).optional(), clues: z.array(clueInput).max(8).optional(), enquiry: enquirySchema.optional(),
@@ -78,12 +84,13 @@ export function applyEdits(file: CaseFile, value: unknown): CaseFile {
   return result;
 }
 
-export function validEnquiry(file: CaseFile, enquiry: Enquiry) {
+export function validEnquiry(file: CaseFile, enquiry: Enquiry): boolean {
   const leadValid = file.leads.some(l => l.id === enquiry.leadId);
   const sourcesValid = enquiry.sourceIds.every(id => file.sources.some(s => s.id === id && s.leadId === enquiry.leadId));
   const responseSourcesValid = !enquiry.response?.sourceIds || enquiry.response.sourceIds.every(id => file.sources.some(s => s.id === id && s.leadId === enquiry.leadId));
   const responsesValid = !enquiry.responses || enquiry.responses.every(r => !r.sourceIds || r.sourceIds.every(id => file.sources.some(s => s.id === id && s.leadId === enquiry.leadId)));
-  return leadValid && sourcesValid && responseSourcesValid && responsesValid;
+  const historyValid = !enquiry.history || enquiry.history.every(h => validEnquiry(file, h.enquiry));
+  return leadValid && sourcesValid && responseSourcesValid && responsesValid && historyValid;
 }
 
 export function isScopeCompatible(current: Query, previous?: Query): boolean {
@@ -132,17 +139,44 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
     unavailable:'Leave the stop unresolved. Seek another source or a more precise recollection; lack of a response does not disprove a visit.',
     draft:`Subject: Venue and event information — ${lead.name}\n\nI am checking an account involving ${file.activity || 'an unidentified stop'} ${when}. Could you point me to dated event listings or venue information that would help check those details?\n\nI am first trying to establish activity and date compatibility. Whether this was the reported stop remains unresolved.\n\nThank you.`
   };
-  if (file.enquiry && file.enquiry.leadId === lead.id) {
+
+  if (!file.enquiry) {
+    return fresh;
+  }
+
+  const stripHistory = (enq: Enquiry): Enquiry => {
+    const { history: _, ...clean } = enq;
+    return clean;
+  };
+
+  const now = new Date().toISOString();
+  const existingHistory = file.enquiry.history || [];
+
+  if (file.enquiry.leadId === lead.id && forceRegenerate) {
+    const archivedSnapshot = stripHistory(file.enquiry);
+    const newHistory = [...existingHistory, { enquiry: archivedSnapshot, recordedAt: now }];
     return {
       ...fresh,
-      response: file.enquiry.response,
-      responses: file.enquiry.responses,
-      outcomeBranch: file.enquiry.outcomeBranch,
-      revisedActionText: file.enquiry.revisedActionText,
-      decisionSummary: file.enquiry.decisionSummary,
+      history: newHistory,
     };
   }
-  return fresh;
+
+  const historyForTargetIndex = existingHistory.findIndex(h => h.enquiry.leadId === lead.id);
+  if (historyForTargetIndex >= 0 && !forceRegenerate) {
+    const targetEntry = existingHistory[historyForTargetIndex];
+    const archivedActive = stripHistory(file.enquiry);
+    const remainingHistory = existingHistory.filter((_, idx) => idx !== historyForTargetIndex);
+    return {
+      ...targetEntry.enquiry,
+      history: [...remainingHistory, { enquiry: archivedActive, recordedAt: now }],
+    };
+  }
+
+  const archivedActive = stripHistory(file.enquiry);
+  return {
+    ...fresh,
+    history: [...existingHistory, { enquiry: archivedActive, recordedAt: now }],
+  };
 }
 
 export function exportBrief(file: CaseFile) {
@@ -158,6 +192,19 @@ export function exportBrief(file: CaseFile) {
     ? `### Selected Branch Outcome: ${enquiry.outcomeBranch}\n${enquiry.revisedActionText || enquiry.decisionSummary || ''}`
     : '';
 
+  const historySection = enquiry?.history?.length
+    ? `\n\n## Archived Enquiry History\n` + enquiry.history.map((h, i) => {
+        const archivedLead = file.leads.find(l => l.id === h.enquiry.leadId);
+        const archivedResponses = h.enquiry.responses?.length ? h.enquiry.responses : (h.enquiry.response ? [h.enquiry.response] : []);
+        const respText = archivedResponses.length
+          ? archivedResponses.map((r, ri) =>
+              `#### Response ${ri + 1} (${r.outcomeBranch})\n- Record Holder: ${r.respondent}\n- Date: ${r.receivedAt}\n- Passage/Absence: ${r.passage}${r.summary ? `\n- Summary: ${r.summary}` : ''}${r.whatChanges ? `\n- What Changes: ${r.whatChanges}` : ''}${r.unresolved ? `\n- Open Uncertainties: ${r.unresolved}` : ''}`
+            ).join('\n\n')
+          : 'No responses recorded for this archived enquiry.';
+        return `### Archived Enquiry ${i + 1}: ${archivedLead?.name || 'Unresolved Lead'} (${h.recordedAt})\nQuestion: ${h.enquiry.question}\nRecord to check: ${h.enquiry.recordTarget || 'Not specified.'}\n\nRationale:\n${h.enquiry.rationale}\n\nConfirming branch: ${h.enquiry.confirming}\nConflicting branch: ${h.enquiry.conflicting}\nUnavailable branch: ${h.enquiry.unavailable}\n\n${respText}\n\n#### Draft (Draft only — no message sent via system)\n${h.enquiry.draft}`;
+      }).join('\n\n')
+    : '';
+
   return [
     `# ${file.title}`,
     file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
@@ -168,7 +215,7 @@ export function exportBrief(file: CaseFile) {
     `## Known timeline\n${file.caseContext?.known||'Not yet recorded.'}`,
     `## Gap to resolve\n${file.caseContext?.gap||'Not yet recorded.'}`,
     `## Cultural references\n${file.clues.map(c=>`${c.enabled?'Included':'Withdrawn'}: ${c.label} (${c.provenance.replaceAll('_',' ')})`).join('\n')}`,
-    enquiry?`## Next enquiry: ${lead?.name||'Unresolved'}\n${enquiry.question}\n\nRecord to check: ${enquiry.recordTarget||'Not specified.'}\n\n${enquiry.rationale}\n\nConfirming response: ${enquiry.confirming}\nConflicting response: ${enquiry.conflicting}\nUnavailable response: ${enquiry.unavailable}\n\n${responseSection}${outcomeText ? `\n\n${outcomeText}` : ''}\n\n### Draft (Draft only — no message sent via system)\n${enquiry.draft}`:'## Next enquiry\nNot yet selected.',
+    enquiry?`## Next enquiry: ${lead?.name||'Unresolved'}\n${enquiry.question}\n\nRecord to check: ${enquiry.recordTarget||'Not specified.'}\n\n${enquiry.rationale}\n\nConfirming response: ${enquiry.confirming}\nConflicting response: ${enquiry.conflicting}\nUnavailable response: ${enquiry.unavailable}\n\n${responseSection}${outcomeText ? `\n\n${outcomeText}` : ''}\n\n### Draft (Draft only — no message sent via system)\n${enquiry.draft}${historySection}`:'## Next enquiry\nNot yet selected.',
     `## Sources\n${file.sources.map(s=>`### ${s.title}\n${s.url||'Investigator-supplied record'}\n${s.kind}; ${s.mode}; captured ${s.capturedAt}\n${s.excerpt}\n${s.note}`).join('\n\n')}`,
     `## Query provenance\n${file.queries.map(q=>`${q.label} — ${q.mode}, ${q.createdAt}; ${q.leadIds.length} returned places; receipt ${q.receiptId}.${q.inputSnapshot ? ` Input snapshot: ${q.inputSnapshot.clues.map(c=>c.label).join(', ')||'None'}.` : ''} ${q.warnings.join(' ')}`).join('\n')}`
   ].join('\n\n');

@@ -33,7 +33,58 @@ export function useWorkspace(){
     summary:'',
     revisedActionText:''
   });
+  const sourceDraftsRef = useRef<Map<string, typeof sourceForm>>(new Map());
+  const responseDraftsRef = useRef<Map<string, typeof responseForm>>(new Map());
+  const activeComposerKeyRef = useRef<string>('');
   const running=useRef(false);const current=useRef<CaseFile|null>(null);const initialized=useRef(false);
+
+  const defaultSourceForm = { title: '', url: '', excerpt: '', note: '', kind: 'user_excerpt' as const };
+  const defaultResponseForm = {
+    respondent: '',
+    receivedAt: new Date().toISOString().slice(0, 10),
+    passage: '',
+    outcomeBranch: 'confirming' as const,
+    sourceIds: [] as string[],
+    whatChanges: '',
+    unresolved: '',
+    summary: '',
+    revisedActionText: ''
+  };
+
+  const activeLeadId = leadId || file?.enquiry?.leadId || file?.leads[0]?.id || '';
+  const composerKey = file?.id ? (activeLeadId ? `${file.id}:${activeLeadId}` : file.id) : '';
+
+  useEffect(() => {
+    const prevKey = activeComposerKeyRef.current;
+    if (prevKey && prevKey !== composerKey) {
+      sourceDraftsRef.current.set(prevKey, sourceForm);
+      responseDraftsRef.current.set(prevKey, responseForm);
+    }
+    if (composerKey && prevKey !== composerKey) {
+      activeComposerKeyRef.current = composerKey;
+      const restoredSource = sourceDraftsRef.current.get(composerKey) || defaultSourceForm;
+      const restoredResponse = responseDraftsRef.current.get(composerKey) || {
+        ...defaultResponseForm,
+        receivedAt: new Date().toISOString().slice(0, 10),
+      };
+      setSourceForm(restoredSource);
+      setResponseForm(restoredResponse);
+    } else if (!prevKey && composerKey) {
+      activeComposerKeyRef.current = composerKey;
+    }
+  }, [composerKey]);
+
+  function clearSourceForm(key?: string) {
+    const targetKey = key || composerKey;
+    if (targetKey) sourceDraftsRef.current.delete(targetKey);
+    if (!key || key === composerKey) setSourceForm(defaultSourceForm);
+  }
+
+  function clearResponseForm(key?: string) {
+    const targetKey = key || composerKey;
+    if (targetKey) responseDraftsRef.current.delete(targetKey);
+    if (!key || key === composerKey) setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
+  }
 
   const hasUnsavedComposer = !!sourceForm.title.trim() || !!sourceForm.excerpt.trim() || !!newClue.trim() || !!responseForm.respondent.trim() || !!responseForm.passage.trim();
   const dirty= (!!file&&!!saved&&JSON.stringify(file)!==JSON.stringify(saved)) || hasUnsavedComposer;
@@ -156,7 +207,7 @@ export function useWorkspace(){
   }
 
   const disabled=!!busy;const enabledClues=file?.clues.filter(c=>c.enabled)||[];
-  return {file,cases,services,editingBrief,setEditingBrief,recoveryState,resolveConflictKeepServer,copyLocalWork,headingRef,menuRef,step,busy,error,setError,notice,setNotice,dirty,query,comparison,differences,leads,selected,selectedQuery,selectedSources,queryId,setQueryId,compareId,setCompareId,leadId,setLeadId,filter,setFilter,newClue,setNewClue,newKind,setNewKind,sourceForm,setSourceForm,responseForm,setResponseForm,running,disabled,enabledClues,goToStep,edit,boot,perform,saveClick,finishBrief,create,switchCase,runAgent,addClue,chooseEnquiry,regenerateEnquiry,download,copy};
+  return {file,cases,services,editingBrief,setEditingBrief,recoveryState,resolveConflictKeepServer,copyLocalWork,headingRef,menuRef,step,busy,error,setError,notice,setNotice,dirty,query,comparison,differences,leads,selected,selectedQuery,selectedSources,queryId,setQueryId,compareId,setCompareId,leadId,setLeadId,filter,setFilter,newClue,setNewClue,newKind,setNewKind,sourceForm,setSourceForm,responseForm,setResponseForm,clearSourceForm,clearResponseForm,running,disabled,enabledClues,goToStep,edit,boot,perform,saveClick,finishBrief,create,switchCase,runAgent,addClue,chooseEnquiry,regenerateEnquiry,download,copy};
 }
 export type WorkspaceState = ReturnType<typeof useWorkspace>;
 

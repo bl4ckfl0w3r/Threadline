@@ -38,7 +38,22 @@ export function LeadsView({w}:{w:WorkspaceState}) {
     <div className="query-controls"><label className="field">View result<select value={w.query?.id||''} onChange={e=>{w.setQueryId(e.target.value);w.setLeadId('');}}>{f.queries.map(q=><option key={q.id} value={q.id}>{q.label} · {q.mode}</option>)}{!f.queries.length&&<option value="">No queries yet</option>}</select></label><label className="field">Compare with<select value={w.compareId} onChange={e=>w.setCompareId(e.target.value)}><option value="">No comparison</option>{f.queries.filter(q=>q.id!==w.query?.id).map(q=><option key={q.id} value={q.id}>{q.label} · {q.mode}</option>)}</select></label><button className="text-button" disabled={w.disabled||!w.services?.qloo} onClick={()=>w.perform({type:'discover',clueIds:[]},'Querying area baseline','leads')}>Run area baseline <ArrowUpRight size={17}/></button></div>
     {w.query&&<div className="query-meta"><span>{w.query.mode==='recorded'?'Recorded Qloo response':'Live Qloo response'} · {when(w.query.createdAt)} · {w.query.leadIds.length} places</span>{w.comparison&&(w.differences?.compatible !== false ? <span>{w.differences?.added.length} new · {w.differences?.retained.length} retained · {w.differences?.removed.length} absent from this result</span> : <span className="feedback error" style={{ display: 'block', marginTop: '0.25rem' }}>{w.differences?.reason}</span>)}</div>}
     {w.query?.warnings.map((text,i)=><p className="feedback error" key={i}>{text}</p>)}
-    <div className={`lead-spread ${w.leadId?'has-selection':''}`}><section className="candidate-list"><div className="list-tools"><h2>Returned places</h2><label className="search-field"><MagnifyingGlass size={18}/><span className="sr-only">Filter places</span><input value={w.filter} onChange={e=>w.setFilter(e.target.value)} placeholder="Find a place"/></label></div><div className="candidate-rows">{filtered.map((l, idx)=><button key={l.id} className={`candidate-row ${w.selected?.id===l.id?'selected':''}`} onClick={()=>w.setLeadId(l.id)}><span className="rank">{idx+1}</span><span className="candidate-name"><strong>{l.name}</strong><small>{l.address}</small>{w.comparison&&w.differences?.compatible!==false&&w.differences?.added.includes(l.id)&&<span className="result-change">New in this result</span>}</span><ArrowUpRight size={20}/></button>)}{!filtered.length&&<p className="empty-copy">{w.leads.length?'No places match that name.':'Run a query to find places in the selected area.'}</p>}</div><p className="list-note">Position in this response, not likelihood of a visit.</p></section>
+    <div className={`lead-spread ${w.leadId?'has-selection':''}`}><section className="candidate-list"><div className="list-tools"><h2>Returned places</h2><label className="search-field"><MagnifyingGlass size={18}/><span className="sr-only">Filter places</span><input value={w.filter} onChange={e=>w.setFilter(e.target.value)} placeholder="Find a place"/></label></div><div className="candidate-rows">{filtered.map((l, idx)=>{
+      let rank = idx + 1;
+      if (w.query) {
+        const rawRow = w.query.rawRows?.find((r: any) => (r?.entity_id === l.id || r?.id === l.id));
+        if (rawRow && typeof (rawRow as any).ordinal === 'number') {
+          rank = (rawRow as any).ordinal + 1;
+        } else if (Array.isArray(w.query.leadIds)) {
+          const leadIdx = w.query.leadIds.indexOf(l.id);
+          if (leadIdx >= 0) rank = leadIdx + 1;
+        }
+      } else {
+        const fullIdx = w.leads.findIndex(lead => lead.id === l.id);
+        if (fullIdx >= 0) rank = fullIdx + 1;
+      }
+      return <button key={l.id} className={`candidate-row ${w.selected?.id===l.id?'selected':''}`} onClick={()=>w.setLeadId(l.id)}><span className="rank">{rank}</span><span className="candidate-name"><strong>{l.name}</strong><small>{l.address}</small>{w.comparison&&w.differences?.compatible!==false&&w.differences?.added.includes(l.id)&&<span className="result-change">New in this result</span>}</span><ArrowUpRight size={20}/></button>;
+    })}{!filtered.length&&<p className="empty-copy">{w.leads.length?'No places match that name.':'Run a query to find places in the selected area.'}</p>}</div><p className="list-note">Position in this response, not likelihood of a visit.</p></section>
     <aside className="candidate-detail">{w.selected?<><button className="text-button mobile-back" onClick={()=>w.setLeadId('')}>← Back to places</button><span className="field-label">Place under review</span><h2>{w.selected.name}</h2><p className="muted">{w.selected.address}</p><dl><dt>Returned for</dt><dd>{w.selectedQuery?.label||'An earlier query'}</dd><dt>Still to establish</dt><dd>The remembered activity, the relevant dates, and a case-linked record.</dd></dl><div className="detail-commands"><button className="button primary" onClick={()=>w.goToStep('sources')}>Check sources <ArrowRight size={18}/></button><button className="text-button" disabled={w.disabled} onClick={()=>w.chooseEnquiry(w.selected!)}>Draft enquiry <ArrowUpRight size={17}/></button></div>{!!w.selectedSources.length&&<button className="source-count text-button" onClick={()=>w.goToStep('sources')}><LinkSimple size={17}/>{w.selectedSources.length} source note{w.selectedSources.length===1?'':'s'}</button>}{w.selected.website&&<a className="text-button" href={w.selected.website} target="_blank" rel="noopener noreferrer">Listed website <ArrowUpRight size={17}/></a>}</>:<p className="empty-copy">Select a returned place.</p>}</aside></div>
     {w.query&&<details className="provenance"><summary>Query provenance</summary><p>Inputs: {w.query.inputSnapshot ? w.query.inputSnapshot.clues.map(c=>c.label).join(', ') : w.query.clueIds.map(id=>f.clues.find(c=>c.id===id)?.label||'Reference removed').join(', ')||'No cultural interests'}</p><p>Centre: {w.query.geography.latitude}, {w.query.geography.longitude} · Radius: {w.query.geography.radius} metres · Category: {w.query.category}</p><code>{w.query.receiptId}</code></details>}
   </>;
@@ -48,7 +63,7 @@ export function SourcesView({w}:{w:WorkspaceState}) {
   const f=w.file!;
   return <div className="sources-spread">
     <RecoveryBanner w={w} />
-    <section><label className="field place-picker">Place under review<select value={w.selected?.id||''} disabled={w.disabled} onChange={e=>w.setLeadId(e.target.value)}>{f.leads.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}{!f.leads.length&&<option value="">Discover a place first</option>}</select></label>{w.selectedSources.map(s=><article className="source-document" key={s.id}><div className="document-meta"><span>{s.mode==='recorded'?'Recorded source note':s.kind==='user_record'?'Investigator-supplied record':s.kind==='user_excerpt'?'Supplied excerpt':'Retrieved page'}</span><time>{when(s.capturedAt)}</time></div><h2>{s.title}</h2><p className="source-passage">{s.excerpt}</p><div className="source-caveat"><h3>What remains open</h3><p>{s.note||'Review the source’s scope and limits before relying on it.'}</p></div>{s.url&&<a className="text-button" href={s.url} target="_blank" rel="noopener noreferrer">Open source <ArrowUpRight size={17}/></a>}</article>)}{!w.selectedSources.length&&<div className="empty-copy">No sources attached. Read a public page or add a relevant passage.</div>}<div className="source-commands">{w.selected?.website&&<button className="button secondary" disabled={w.disabled} onClick={()=>w.perform({type:'inspect',leadId:w.selected!.id,url:w.selected!.website!.replace(/^http:/,'https:')},'Reading public source')}>Read public page <ArrowUpRight size={17}/></button>}{w.selected&&<button className="button primary" disabled={w.disabled} onClick={()=>w.chooseEnquiry(w.selected!)}>Draft next enquiry <ArrowRight size={18}/></button>}</div></section><form className="source-composer" onSubmit={async e=>{e.preventDefault();if(!w.selected)return;const result=await w.perform({type:'source',leadId:w.selected.id,...w.sourceForm,url:w.sourceForm.url||undefined},'Saving source note');if(result)w.setSourceForm({title:'',url:'',excerpt:'',note:'',kind:'user_excerpt'});}}><h2>Attach a source</h2><label className="field">Source type<select disabled={w.disabled} value={w.sourceForm.kind} onChange={e=>w.setSourceForm({...w.sourceForm,kind:e.target.value as typeof w.sourceForm.kind})}><option value="user_excerpt">Public source excerpt</option><option value="user_record">Investigator-supplied record</option></select></label><label className="field">Title<input required disabled={w.disabled} value={w.sourceForm.title} onChange={e=>w.setSourceForm({...w.sourceForm,title:e.target.value})}/></label><label className="field">Source link (optional)<input type="url" disabled={w.disabled} value={w.sourceForm.url} onChange={e=>w.setSourceForm({...w.sourceForm,url:e.target.value})} placeholder="https://…"/></label><label className="field">Relevant passage<textarea required rows={5} disabled={w.disabled} value={w.sourceForm.excerpt} onChange={e=>w.setSourceForm({...w.sourceForm,excerpt:e.target.value})}/></label><label className="field">What does it establish?<textarea rows={3} disabled={w.disabled} value={w.sourceForm.note} onChange={e=>w.setSourceForm({...w.sourceForm,note:e.target.value})}/></label><button className="button primary" disabled={w.disabled||!w.selected}>Attach source <Plus size={18}/></button></form></div>;
+    <section><label className="field place-picker">Place under review<select value={w.selected?.id||''} disabled={w.disabled} onChange={e=>w.setLeadId(e.target.value)}>{f.leads.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}{!f.leads.length&&<option value="">Discover a place first</option>}</select></label>{w.selectedSources.map(s=><article className="source-document" key={s.id}><div className="document-meta"><span>{s.mode==='recorded'?'Recorded source note':s.kind==='user_record'?'Investigator-supplied record':s.kind==='user_excerpt'?'Supplied excerpt':'Retrieved page'}</span><time>{when(s.capturedAt)}</time></div><h2>{s.title}</h2><p className="source-passage">{s.excerpt}</p><div className="source-caveat"><h3>What remains open</h3><p>{s.note||'Review the source’s scope and limits before relying on it.'}</p></div>{s.url&&<a className="text-button" href={s.url} target="_blank" rel="noopener noreferrer">Open source <ArrowUpRight size={17}/></a>}</article>)}{!w.selectedSources.length&&<div className="empty-copy">No sources attached. Read a public page or add a relevant passage.</div>}<div className="source-commands">{w.selected?.website&&<button className="button secondary" disabled={w.disabled} onClick={()=>w.perform({type:'inspect',leadId:w.selected!.id,url:w.selected!.website!.replace(/^http:/,'https:')},'Reading public source')}>Read public page <ArrowUpRight size={17}/></button>}{w.selected&&<button className="button primary" disabled={w.disabled} onClick={()=>w.chooseEnquiry(w.selected!)}>Draft next enquiry <ArrowRight size={18}/></button>}</div></section><form className="source-composer" onSubmit={async e=>{e.preventDefault();if(!w.selected)return;const result=await w.perform({type:'source',leadId:w.selected.id,...w.sourceForm,url:w.sourceForm.url||undefined},'Saving source note');if(result)w.clearSourceForm();}}><h2>Attach a source</h2><label className="field">Source type<select disabled={w.disabled} value={w.sourceForm.kind} onChange={e=>w.setSourceForm({...w.sourceForm,kind:e.target.value as typeof w.sourceForm.kind})}><option value="user_excerpt">Public source excerpt</option><option value="user_record">Investigator-supplied record</option></select></label><label className="field">Title<input required disabled={w.disabled} value={w.sourceForm.title} onChange={e=>w.setSourceForm({...w.sourceForm,title:e.target.value})}/></label><label className="field">Source link (optional)<input type="url" disabled={w.disabled} value={w.sourceForm.url} onChange={e=>w.setSourceForm({...w.sourceForm,url:e.target.value})} placeholder="https://…"/></label><label className="field">Relevant passage<textarea required rows={5} disabled={w.disabled} value={w.sourceForm.excerpt} onChange={e=>w.setSourceForm({...w.sourceForm,excerpt:e.target.value})}/></label><label className="field">What does it establish?<textarea rows={3} disabled={w.disabled} value={w.sourceForm.note} onChange={e=>w.setSourceForm({...w.sourceForm,note:e.target.value})}/></label><div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}><button className="button primary" disabled={w.disabled||!w.selected}>Attach source <Plus size={18}/></button>{(!!w.sourceForm.title.trim() || !!w.sourceForm.excerpt.trim()) && <button type="button" className="button secondary" disabled={w.disabled} onClick={()=>w.clearSourceForm()}>Discard draft</button>}</div></form></div>;
 }
 
 export function EnquiryView({w}:{w:WorkspaceState}) {
@@ -90,17 +105,7 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
             revisedActionText: w.responseForm.revisedActionText || w.responseForm.whatChanges
           }, 'Recording response');
           if (res) {
-            w.setResponseForm({
-              respondent: '',
-              receivedAt: new Date().toISOString().slice(0, 10),
-              passage: '',
-              outcomeBranch: 'confirming',
-              sourceIds: [],
-              whatChanges: '',
-              unresolved: '',
-              summary: '',
-              revisedActionText: ''
-            });
+            w.clearResponseForm();
           }
         }}>
           <label className="field">Source Record Holder / Respondent
@@ -125,11 +130,68 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
           <label className="field">Open Uncertainties
             <textarea rows={3} value={w.responseForm.unresolved} disabled={w.disabled} onChange={evt=>w.setResponseForm({...w.responseForm, unresolved: evt.target.value})} placeholder="What remains unverified or open..." />
           </label>
-          <button className="button primary" style={{ marginTop: '0.5rem' }} disabled={w.disabled || !w.responseForm.respondent.trim() || !w.responseForm.passage.trim()}>
-            Record Enquiry Response <Plus size={18}/>
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <button className="button primary" disabled={w.disabled || !w.responseForm.respondent.trim() || !w.responseForm.passage.trim()}>
+              Record Enquiry Response <Plus size={18}/>
+            </button>
+            {(!!w.responseForm.respondent.trim() || !!w.responseForm.passage.trim()) && (
+              <button type="button" className="button secondary" disabled={w.disabled} onClick={()=>w.clearResponseForm()}>
+                Discard draft
+              </button>
+            )}
+          </div>
         </form>
       </div>
+
+      {/* Archived Enquiry History */}
+      {!!e.history?.length && (
+        <div className="archived-history" style={{ marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid var(--line, #ccc)' }}>
+          <h3>Archived Enquiry History ({e.history.length})</h3>
+          {e.history.map((h, hIdx) => {
+            const hLead = f.leads.find(l => l.id === h.enquiry.leadId);
+            const hResponses = h.enquiry.responses?.length ? h.enquiry.responses : (h.enquiry.response ? [h.enquiry.response] : []);
+            return (
+              <details key={hIdx} style={{ marginBottom: '1rem', padding: '0.75rem', border: '1px solid var(--line, #ccc)', borderRadius: '4px' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+                  {hLead?.name || 'Unresolved Lead'} — {h.recordedAt ? when(h.recordedAt) : 'Archived'}
+                </summary>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                  <p><strong>Question:</strong> {h.enquiry.question}</p>
+                  <p><strong>Record to check:</strong> {h.enquiry.recordTarget || 'Not specified'}</p>
+                  <p><strong>Rationale:</strong> {h.enquiry.rationale}</p>
+                  <div style={{ margin: '0.5rem 0' }}>
+                    <strong>Branches:</strong>
+                    <ul style={{ paddingLeft: '1.2rem', marginTop: '0.25rem' }}>
+                      <li><em>Confirming:</em> {h.enquiry.confirming}</li>
+                      <li><em>Conflicting:</em> {h.enquiry.conflicting}</li>
+                      <li><em>Unavailable:</em> {h.enquiry.unavailable}</li>
+                    </ul>
+                  </div>
+                  {!!hResponses.length && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <strong>Recorded Responses ({hResponses.length}):</strong>
+                      {hResponses.map((r, rIdx) => (
+                        <div key={r.id || rIdx} style={{ padding: '0.5rem', marginTop: '0.25rem', border: '1px solid var(--line, #eee)', borderRadius: '4px' }}>
+                          <strong>{r.respondent}</strong> ({r.outcomeBranch}) — {r.receivedAt}
+                          {r.answeredQuestion && <p style={{ fontSize: '0.85rem', color: '#555' }}><em>Answered Question:</em> {r.answeredQuestion}</p>}
+                          {r.selectedBranchText && <p style={{ fontSize: '0.85rem', color: '#555' }}><em>Selected Branch Text:</em> {r.selectedBranchText}</p>}
+                          <p style={{ marginTop: '0.25rem' }}>{r.passage}</p>
+                          {r.whatChanges && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Changes:</strong> {r.whatChanges}</p>}
+                          {r.unresolved && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Uncertainty:</strong> {r.unresolved}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <details style={{ marginTop: '0.5rem' }}>
+                    <summary style={{ fontSize: '0.85rem', cursor: 'pointer' }}>View Archived Draft</summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem', marginTop: '0.25rem', padding: '0.5rem', background: '#f8f8f8', borderRadius: '4px' }}>{h.enquiry.draft}</pre>
+                  </details>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
     </section>
 
     <aside className="decision-column">
@@ -143,6 +205,8 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
           {responses.map((resp, idx) => (
             <article key={resp.id || idx} style={{ padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--line, #ccc)', borderRadius: '4px' }}>
               <strong>{resp.respondent}</strong> ({resp.outcomeBranch}) — <small>{resp.receivedAt}</small>
+              {resp.answeredQuestion && <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Question:</em> {resp.answeredQuestion}</p>}
+              {resp.selectedBranchText && <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Branch Text:</em> {resp.selectedBranchText}</p>}
               <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{resp.passage}</p>
               {resp.whatChanges && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Changes:</strong> {resp.whatChanges}</p>}
               {resp.unresolved && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Uncertainty:</strong> {resp.unresolved}</p>}

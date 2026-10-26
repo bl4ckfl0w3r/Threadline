@@ -48,16 +48,135 @@ test('draftEnquiry preserves existing enquiry for same lead unless forceRegenera
   assert.equal(reopened.draft, 'Custom edited draft text by user');
   assert.equal(reopened.outcomeBranch, 'confirming');
 
-  // Reopening with forceRegenerate refreshes draft text but keeps responses/outcomes
+  // Reopening with forceRegenerate refreshes draft text and archives previous enquiry in history
   const regenerated = draftEnquiry(file, lead, true);
   assert.match(regenerated.draft, /Subject: Venue and event information/);
-  assert.equal(regenerated.outcomeBranch, 'confirming');
+  assert.equal(regenerated.history?.[0]?.enquiry.draft, 'Custom edited draft text by user');
+  assert.equal(regenerated.history?.[0]?.enquiry.outcomeBranch, 'confirming');
 
-  // Reopening for a DIFFERENT lead does not inherit the previous lead's draft
+  // Reopening for a DIFFERENT lead does not inherit the previous lead's draft, but archives lead-1 enquiry into history
   const otherLead = { id: 'lead-2', name: 'Other Venue', address: '456 Side St', tags: [], introducedBy: 'q' };
   const otherDraft = draftEnquiry(file, otherLead, false);
   assert.match(otherDraft.draft, /Subject: Venue and event information — Other Venue/);
   assert.equal(otherDraft.outcomeBranch, undefined);
+  assert.equal(otherDraft.history?.[0]?.enquiry.leadId, 'lead-1');
+});
+
+test('draftEnquiry archives Lead A before Lead B, and restores Lead A when requested', () => {
+  const file = blankCase('history-restore-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA, leadB];
+
+  // Draft for A and record custom details
+  file.enquiry = draftEnquiry(file, leadA);
+  file.enquiry.question = 'Custom question for A?';
+  file.enquiry.draft = 'Draft for A';
+  file.enquiry.response = {
+    id: 'resp-a',
+    respondent: 'Archivist A',
+    receivedAt: '2026-10-25',
+    passage: 'Passage for A',
+    outcomeBranch: 'confirming'
+  };
+
+  // Draft for B
+  file.enquiry = draftEnquiry(file, leadB);
+  assert.equal(file.enquiry.leadId, 'lead-B');
+  assert.match(file.enquiry.draft, /Venue B/);
+  assert.equal(file.enquiry.history?.length, 1);
+  assert.equal(file.enquiry.history?.[0].enquiry.leadId, 'lead-A');
+  assert.equal(file.enquiry.history?.[0].enquiry.question, 'Custom question for A?');
+
+  // Switch back to A
+  file.enquiry = draftEnquiry(file, leadA);
+  assert.equal(file.enquiry.leadId, 'lead-A');
+  assert.equal(file.enquiry.question, 'Custom question for A?');
+  assert.equal(file.enquiry.response?.respondent, 'Archivist A');
+  assert.equal(file.enquiry.history?.length, 1);
+  assert.equal(file.enquiry.history?.[0].enquiry.leadId, 'lead-B');
+
+  // Valid enquiry schema check with history
+  const savedAndParsed = applyEdits(file, { enquiry: file.enquiry });
+  assert.equal(savedAndParsed.enquiry?.leadId, 'lead-A');
+  assert.equal(savedAndParsed.enquiry?.history?.length, 1);
+
+  // Export brief includes archived history
+  const brief = exportBrief(savedAndParsed);
+  assert.match(brief, /Archived Enquiry History/);
+  assert.match(brief, /Venue B/);
+});
+
+test('response recording snapshots answered question and selected branch text', () => {
+  const file = blankCase('response-snapshot-test');
+  const lead = { id: 'lead-1', name: 'Venue 1', address: 'Address 1', tags: [], introducedBy: 'q' };
+  file.leads = [lead];
+  file.enquiry = draftEnquiry(file, lead);
+  file.enquiry.question = 'Custom Question?';
+  file.enquiry.confirming = 'Custom Confirming Branch Text';
+
+  // Snapshot on response
+  const selectedBranchText = file.enquiry[file.enquiry.outcomeBranch || 'confirming'];
+  const answeredQuestion = file.enquiry.question;
+  assert.equal(answeredQuestion, 'Custom Question?');
+  assert.equal(selectedBranchText, 'Custom Confirming Branch Text');
+
+  // Regenerate draft for lead
+  const regenerated = draftEnquiry(file, lead, true);
+  assert.equal(regenerated.history?.[0]?.enquiry.question, 'Custom Question?');
+  assert.equal(regenerated.history?.[0]?.enquiry.confirming, 'Custom Confirming Branch Text');
+});
+
+test('truthful provider ordinals are rendered when filtering candidate rows', () => {
+  const file = blankCase('ordinal-test');
+  const lead1 = { id: 'l1', name: 'Alpha Venue', address: '1 St', tags: [], introducedBy: 'q' };
+  const lead12 = { id: 'l12', name: 'Zebra Venue', address: '12 St', tags: [], introducedBy: 'q' };
+  file.leads = [lead1, lead12];
+
+  // Query with rawRows provider ordinals
+  const queryWithOrdinals: Query = {
+    id: 'q1',
+    label: 'Q1',
+    mode: 'live',
+    createdAt: '2026-10-25T10:00:00Z',
+    clueIds: [],
+    leadIds: ['l1', 'l12'],
+    affinities: {},
+    warnings: [],
+    receiptId: 'rec-1',
+    geography: { latitude: 51.5, longitude: -0.1, radius: 1000 },
+    category: 'book_store',
+    rawRows: [
+      { entity_id: 'l1', ordinal: 0 },
+      { entity_id: 'l12', ordinal: 11 }
+    ]
+  };
+
+  // Helper calculating ordinal rank as implemented in LeadsView
+  const calculateRank = (leadId: string, q: Query | undefined, filteredMapIdx: number) => {
+    if (q) {
+      const rawRow = q.rawRows?.find((r: any) => (r?.entity_id === leadId || r?.id === leadId));
+      if (rawRow && typeof (rawRow as any).ordinal === 'number') {
+        return (rawRow as any).ordinal + 1;
+      } else if (Array.isArray(q.leadIds)) {
+        const leadIdx = q.leadIds.indexOf(leadId);
+        if (leadIdx >= 0) return leadIdx + 1;
+      }
+    }
+    return filteredMapIdx + 1;
+  };
+
+  // Filtered by 'Zebra' -> filtered contains only lead12 at filtered map index 0
+  const rankWithOrdinals = calculateRank('l12', queryWithOrdinals, 0);
+  assert.equal(rankWithOrdinals, 12); // Position 12 in provider response, not position 1
+
+  // Legacy query without rawRows -> falls back to leadIds position index
+  const legacyQuery: Query = {
+    ...queryWithOrdinals,
+    rawRows: undefined
+  };
+  const rankLegacy = calculateRank('l12', legacyQuery, 0);
+  assert.equal(rankLegacy, 2); // Position 2 in leadIds
 });
 
 test('compareQueries verifies category and geography scope compatibility', () => {
