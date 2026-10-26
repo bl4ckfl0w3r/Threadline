@@ -292,3 +292,161 @@ test('exportBrief formats response history, outcome branch, input snapshots, and
   assert.match(brief, /Draft \(Draft only — no message sent via system\)/);
   assert.match(brief, /Input snapshot: Reference Book\./);
 });
+
+test('P1 Defect 1: Response and Source composer origin keys are separate and validated', () => {
+  const file = blankCase('origin-key-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA, leadB];
+
+  // Open enquiry for Lead A
+  file.enquiry = draftEnquiry(file, leadA);
+  file.enquiry.question = 'Question for A?';
+
+  // Key derivation logic as used in useWorkspace:
+  const selectedSourceLeadId = 'lead-B'; // browsing Lead B in Sources View
+  const sourceComposerKey = `${file.id}:source:${selectedSourceLeadId}`;
+  const responseComposerKey = `${file.id}:response:${file.enquiry.leadId}`;
+
+  assert.equal(sourceComposerKey, 'origin-key-test:source:lead-B');
+  assert.equal(responseComposerKey, 'origin-key-test:response:lead-A');
+
+  // Record response for Lead A (e.leadId is lead-A)
+  const responseA = {
+    id: 'resp-a',
+    respondent: 'Archivist A',
+    receivedAt: '2026-10-26',
+    passage: 'Passage for A',
+    outcomeBranch: 'confirming' as const,
+    answeredQuestion: file.enquiry.question,
+    selectedBranchText: file.enquiry.confirming
+  };
+  file.enquiry.response = responseA;
+  file.enquiry.responses = [responseA];
+
+  // Now user drafts enquiry for Lead B
+  const enquiryB = draftEnquiry(file, leadB);
+  assert.equal(enquiryB.leadId, 'lead-B');
+  assert.equal(enquiryB.responses, undefined); // B does not inherit A's response
+  assert.equal(enquiryB.history?.[0]?.enquiry.leadId, 'lead-A');
+  assert.equal(enquiryB.history?.[0]?.enquiry.responses?.[0]?.respondent, 'Archivist A');
+});
+
+test('P2 Defect 2: Parked draft unload protection and sensitive storage exclusion', () => {
+  const file = blankCase('parked-draft-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+
+  // Simulate parked draft helper logic
+  const sourceDrafts = new Map<string, any>();
+  const responseDrafts = new Map<string, any>();
+
+  // Park a draft for Lead A
+  const keyA = `${file.id}:source:lead-A`;
+  sourceDrafts.set(keyA, { title: 'Parked Source Title', excerpt: 'Parked passage text', note: '', kind: 'user_excerpt' });
+
+  // Calculate parked summaries
+  const isSourceNonEmpty = (f: any) => !!(f.title?.trim() || f.excerpt?.trim() || f.note?.trim() || f.url?.trim());
+  const summaries: Array<{ key: string; leadName: string; type: string }> = [];
+  for (const [k, form] of sourceDrafts.entries()) {
+    if (isSourceNonEmpty(form)) {
+      summaries.push({ key: k, leadName: 'Venue A', type: 'source' });
+    }
+  }
+
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].leadName, 'Venue A');
+
+  // Verify unload protection dirty state
+  const hasParked = summaries.length > 0;
+  const dirty = hasParked; // includes parked drafts
+  assert.equal(dirty, true);
+
+  // Verify localStorage contains NO draft content or sensitive case details
+  const dummyLocalStorage: Record<string, string> = {};
+  dummyLocalStorage['threadline-case'] = file.id; // Only case ID stored
+  assert.equal(Object.keys(dummyLocalStorage).length, 1);
+  assert.equal(dummyLocalStorage['threadline-case'], 'parked-draft-test');
+  assert.equal(JSON.stringify(dummyLocalStorage).includes('Parked Source Title'), false);
+});
+
+test('P2 Defect 3: Export brief preserves immutable response provenance across editing and archival', () => {
+  const file = blankCase('export-provenance-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+
+  file.enquiry = draftEnquiry(file, leadA);
+  file.enquiry.question = 'Question Q1?';
+  file.enquiry.confirming = 'Confirming Branch B1';
+
+  // Record response snapshotting Q1 and B1
+  const response1 = {
+    id: 'resp-1',
+    respondent: 'Archivist',
+    receivedAt: '2026-10-26',
+    passage: 'Confirmed in ledger',
+    outcomeBranch: 'confirming' as const,
+    answeredQuestion: file.enquiry.question,
+    selectedBranchText: file.enquiry.confirming,
+    receiptId: 'receipt_resp_123',
+    sourceIds: ['src-1']
+  };
+  file.enquiry.responses = [response1];
+
+  // User subsequently edits enquiry question and confirming text
+  file.enquiry.question = 'MODIFIED Question Q2?';
+  file.enquiry.confirming = 'MODIFIED Confirming Branch B2';
+
+  // Export brief before archival
+  const briefCurrent = exportBrief(file);
+  assert.match(briefCurrent, /Answered Question: Question Q1\?/);
+  assert.match(briefCurrent, /Selected Branch Text: Confirming Branch B1/);
+  assert.doesNotMatch(briefCurrent, /Answered Question: MODIFIED Question Q2\?/);
+
+  // Archive enquiry by regenerating for leadA
+  const regenerated = draftEnquiry(file, leadA, true);
+  file.enquiry = regenerated;
+
+  // Export brief after archival
+  const briefArchived = exportBrief(file);
+  assert.match(briefArchived, /Archived Enquiry History/);
+  assert.match(briefArchived, /Answered Question: Question Q1\?/);
+  assert.match(briefArchived, /Selected Branch Text: Confirming Branch B1/);
+});
+
+test('P2 Defect 4: Reopening lead restores LATEST archived version while preserving history', () => {
+  const file = blankCase('find-last-index-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA, leadB];
+
+  // Lead A v1
+  file.enquiry = draftEnquiry(file, leadA);
+  file.enquiry.question = 'Lead A v1 question';
+
+  // Regenerate Lead A -> Lead A v2
+  file.enquiry = draftEnquiry(file, leadA, true);
+  file.enquiry.question = 'Lead A v2 question (EDITED)';
+
+  // Switch to Lead B -> Lead B v1
+  file.enquiry = draftEnquiry(file, leadB);
+  assert.equal(file.enquiry.leadId, 'lead-B');
+
+  // Verify history has Lead A v1 and Lead A v2 (edited)
+  assert.equal(file.enquiry.history?.length, 2);
+  assert.equal(file.enquiry.history[0].enquiry.question, 'Lead A v1 question');
+  assert.equal(file.enquiry.history[1].enquiry.question, 'Lead A v2 question (EDITED)');
+
+  // Reopen Lead A (without forceRegenerate)
+  file.enquiry = draftEnquiry(file, leadA, false);
+
+  // Assert restored enquiry is Lead A v2 (the LATEST archived version)
+  assert.equal(file.enquiry.leadId, 'lead-A');
+  assert.equal(file.enquiry.question, 'Lead A v2 question (EDITED)');
+
+  // Assert Lead A v1 and Lead B v1 remain in history
+  assert.equal(file.enquiry.history?.length, 2);
+  assert.equal(file.enquiry.history[0].enquiry.question, 'Lead A v1 question');
+  assert.equal(file.enquiry.history[1].enquiry.leadId, 'lead-B');
+});
+

@@ -35,7 +35,8 @@ export function useWorkspace(){
   });
   const sourceDraftsRef = useRef<Map<string, typeof sourceForm>>(new Map());
   const responseDraftsRef = useRef<Map<string, typeof responseForm>>(new Map());
-  const activeComposerKeyRef = useRef<string>('');
+  const activeSourceKeyRef = useRef<string>('');
+  const activeResponseKeyRef = useRef<string>('');
   const running=useRef(false);const current=useRef<CaseFile|null>(null);const initialized=useRef(false);
 
   const defaultSourceForm = { title: '', url: '', excerpt: '', note: '', kind: 'user_excerpt' as const };
@@ -51,43 +52,133 @@ export function useWorkspace(){
     revisedActionText: ''
   };
 
-  const activeLeadId = leadId || file?.enquiry?.leadId || file?.leads[0]?.id || '';
-  const composerKey = file?.id ? (activeLeadId ? `${file.id}:${activeLeadId}` : file.id) : '';
+  const selectedSourceLeadId = leadId || file?.leads[0]?.id || '';
+  const sourceComposerKey = file?.id ? (selectedSourceLeadId ? `${file.id}:source:${selectedSourceLeadId}` : `${file.id}:source`) : '';
+
+  const enquiryLeadId = file?.enquiry?.leadId || '';
+  const responseComposerKey = file?.id ? (enquiryLeadId ? `${file.id}:response:${enquiryLeadId}` : `${file.id}:response`) : '';
 
   useEffect(() => {
-    const prevKey = activeComposerKeyRef.current;
-    if (prevKey && prevKey !== composerKey) {
+    const prevKey = activeSourceKeyRef.current;
+    if (prevKey && prevKey !== sourceComposerKey) {
       sourceDraftsRef.current.set(prevKey, sourceForm);
+    }
+    if (sourceComposerKey && prevKey !== sourceComposerKey) {
+      activeSourceKeyRef.current = sourceComposerKey;
+      const restoredSource = sourceDraftsRef.current.get(sourceComposerKey) || defaultSourceForm;
+      setSourceForm(restoredSource);
+    } else if (!prevKey && sourceComposerKey) {
+      activeSourceKeyRef.current = sourceComposerKey;
+    }
+  }, [sourceComposerKey]);
+
+  useEffect(() => {
+    const prevKey = activeResponseKeyRef.current;
+    if (prevKey && prevKey !== responseComposerKey) {
       responseDraftsRef.current.set(prevKey, responseForm);
     }
-    if (composerKey && prevKey !== composerKey) {
-      activeComposerKeyRef.current = composerKey;
-      const restoredSource = sourceDraftsRef.current.get(composerKey) || defaultSourceForm;
-      const restoredResponse = responseDraftsRef.current.get(composerKey) || {
+    if (responseComposerKey && prevKey !== responseComposerKey) {
+      activeResponseKeyRef.current = responseComposerKey;
+      const restoredResponse = responseDraftsRef.current.get(responseComposerKey) || {
         ...defaultResponseForm,
         receivedAt: new Date().toISOString().slice(0, 10),
       };
-      setSourceForm(restoredSource);
       setResponseForm(restoredResponse);
-    } else if (!prevKey && composerKey) {
-      activeComposerKeyRef.current = composerKey;
+    } else if (!prevKey && responseComposerKey) {
+      activeResponseKeyRef.current = responseComposerKey;
     }
-  }, [composerKey]);
+  }, [responseComposerKey]);
 
   function clearSourceForm(key?: string) {
-    const targetKey = key || composerKey;
+    const targetKey = key || sourceComposerKey;
     if (targetKey) sourceDraftsRef.current.delete(targetKey);
-    if (!key || key === composerKey) setSourceForm(defaultSourceForm);
+    if (!key || key === sourceComposerKey) setSourceForm(defaultSourceForm);
   }
 
   function clearResponseForm(key?: string) {
-    const targetKey = key || composerKey;
+    const targetKey = key || responseComposerKey;
     if (targetKey) responseDraftsRef.current.delete(targetKey);
-    if (!key || key === composerKey) setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
+    if (!key || key === responseComposerKey) setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
   }
 
-  const hasUnsavedComposer = !!sourceForm.title.trim() || !!sourceForm.excerpt.trim() || !!newClue.trim() || !!responseForm.respondent.trim() || !!responseForm.passage.trim();
-  const dirty= (!!file&&!!saved&&JSON.stringify(file)!==JSON.stringify(saved)) || hasUnsavedComposer;
+  function isSourceFormNonEmpty(f: typeof sourceForm) {
+    return !!(f.title.trim() || f.excerpt.trim() || f.note.trim() || f.url.trim());
+  }
+
+  function isResponseFormNonEmpty(f: typeof responseForm) {
+    return !!(f.respondent.trim() || f.passage.trim() || f.whatChanges.trim() || f.unresolved.trim() || f.summary.trim() || f.revisedActionText.trim());
+  }
+
+  const hasVisibleUnsavedComposer = isSourceFormNonEmpty(sourceForm) || isResponseFormNonEmpty(responseForm) || !!newClue.trim();
+
+  const getParkedDraftSummaries = () => {
+    const list: Array<{ key: string; caseId: string; type: 'source' | 'response'; leadId: string; leadName: string; preview: string }> = [];
+    
+    if (sourceComposerKey && isSourceFormNonEmpty(sourceForm)) {
+      const parts = sourceComposerKey.split(':');
+      const caseId = parts[0];
+      const lId = parts[2] || '';
+      const leadName = file?.leads.find(l => l.id === lId)?.name || 'Selected Place';
+      list.push({ key: sourceComposerKey, caseId, type: 'source', leadId: lId, leadName, preview: sourceForm.title || sourceForm.excerpt });
+    }
+    for (const [key, form] of sourceDraftsRef.current.entries()) {
+      if (key !== sourceComposerKey && isSourceFormNonEmpty(form)) {
+        const parts = key.split(':');
+        const caseId = parts[0];
+        const lId = parts[2] || '';
+        const leadName = file?.leads.find(l => l.id === lId)?.name || 'Parked Place';
+        list.push({ key, caseId, type: 'source', leadId: lId, leadName, preview: form.title || form.excerpt });
+      }
+    }
+
+    if (responseComposerKey && isResponseFormNonEmpty(responseForm)) {
+      const parts = responseComposerKey.split(':');
+      const caseId = parts[0];
+      const lId = parts[2] || '';
+      const leadName = file?.leads.find(l => l.id === lId)?.name || (file?.enquiry?.leadId === lId ? file.leads.find(l => l.id === file.enquiry?.leadId)?.name : '') || 'Current Enquiry';
+      list.push({ key: responseComposerKey, caseId, type: 'response', leadId: lId, leadName, preview: responseForm.respondent || responseForm.passage });
+    }
+    for (const [key, form] of responseDraftsRef.current.entries()) {
+      if (key !== responseComposerKey && isResponseFormNonEmpty(form)) {
+        const parts = key.split(':');
+        const caseId = parts[0];
+        const lId = parts[2] || '';
+        const leadName = file?.leads.find(l => l.id === lId)?.name || 'Parked Enquiry';
+        list.push({ key, caseId, type: 'response', leadId: lId, leadName, preview: form.respondent || form.passage });
+      }
+    }
+
+    return list;
+  };
+
+  const hasParkedDrafts = getParkedDraftSummaries().length > 0;
+  const dirty= (!!file&&!!saved&&JSON.stringify(file)!==JSON.stringify(saved)) || hasVisibleUnsavedComposer || hasParkedDrafts;
+
+  function restoreParkedDraft(summary: { key: string; type: 'source' | 'response'; leadId: string }) {
+    if (summary.leadId) {
+      setLeadId(summary.leadId);
+    }
+    if (summary.type === 'source') {
+      goToStep('sources');
+    } else {
+      goToStep('enquiry');
+    }
+  }
+
+  function discardParkedDraft(key: string, type: 'source' | 'response') {
+    if (type === 'source') {
+      clearSourceForm(key);
+    } else {
+      clearResponseForm(key);
+    }
+  }
+
+  function clearAllParkedDrafts() {
+    sourceDraftsRef.current.clear();
+    responseDraftsRef.current.clear();
+    setSourceForm(defaultSourceForm);
+    setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
+  }
 
   const query=file?.queries.find(q=>q.id===queryId)||file?.queries.at(-1);
   const comparison=file?.queries.find(q=>q.id===compareId && q.id!==query?.id);
@@ -149,7 +240,7 @@ export function useWorkspace(){
   useEffect(()=>{if(initialized.current)return;initialized.current=true;void boot();return()=>{running.current=false;};},[]);
   useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
 
-  async function save(){if(!file)return null;if(!dirty && !hasUnsavedComposer)return file;const {id,revision,title,question,notes,caseContext,area,latitude,longitude,radius,startDate,endDate,activity,category,clues,enquiry}=file;const data=await api(`/api/cases/${id}`,'PATCH',{revision,edits:{title,question,notes,caseContext,area,latitude,longitude,radius,startDate,endDate,activity,category,clues,enquiry}});accept(data.case);return data.case as CaseFile;}
+  async function save(){if(!file)return null;if(!dirty)return file;const {id,revision,title,question,notes,caseContext,area,latitude,longitude,radius,startDate,endDate,activity,category,clues,enquiry}=file;const data=await api(`/api/cases/${id}`,'PATCH',{revision,edits:{title,question,notes,caseContext,area,latitude,longitude,radius,startDate,endDate,activity,category,clues,enquiry}});accept(data.case);return data.case as CaseFile;}
   async function perform(action:ResearchAction,label:string,nextStep?:Step){setBusy(label);setError('');setNotice('');try{const active=await save();if(!active)return;const data=await api(`/api/cases/${active.id}/actions`,'POST',{revision:active.revision,action});accept(data.case);if(action.type==='discover'){setQueryId(data.case.queries.at(-1)?.id||'');setLeadId('');}if(nextStep)goToStep(nextStep);return data.case as CaseFile;}catch(e){handleError(e);}finally{setBusy('');}}
   async function saveClick(){setBusy('Saving case');setError('');try{await save();setNotice('Changes saved.');}catch(e){handleError(e);}finally{setBusy('');}}
   async function finishBrief(){setBusy('Saving brief');setError('');try{await save();setEditingBrief(false);setNotice('Brief saved.');}catch(e){handleError(e);}finally{setBusy('');}}
@@ -207,7 +298,7 @@ export function useWorkspace(){
   }
 
   const disabled=!!busy;const enabledClues=file?.clues.filter(c=>c.enabled)||[];
-  return {file,cases,services,editingBrief,setEditingBrief,recoveryState,resolveConflictKeepServer,copyLocalWork,headingRef,menuRef,step,busy,error,setError,notice,setNotice,dirty,query,comparison,differences,leads,selected,selectedQuery,selectedSources,queryId,setQueryId,compareId,setCompareId,leadId,setLeadId,filter,setFilter,newClue,setNewClue,newKind,setNewKind,sourceForm,setSourceForm,responseForm,setResponseForm,clearSourceForm,clearResponseForm,running,disabled,enabledClues,goToStep,edit,boot,perform,saveClick,finishBrief,create,switchCase,runAgent,addClue,chooseEnquiry,regenerateEnquiry,download,copy};
+  return {file,cases,services,editingBrief,setEditingBrief,recoveryState,resolveConflictKeepServer,copyLocalWork,headingRef,menuRef,step,busy,error,setError,notice,setNotice,dirty,query,comparison,differences,leads,selected,selectedQuery,selectedSources,queryId,setQueryId,compareId,setCompareId,leadId,setLeadId,filter,setFilter,newClue,setNewClue,newKind,setNewKind,sourceForm,setSourceForm,responseForm,setResponseForm,clearSourceForm,clearResponseForm,sourceComposerKey,responseComposerKey,getParkedDraftSummaries,restoreParkedDraft,discardParkedDraft,clearAllParkedDrafts,hasParkedDrafts,running,disabled,enabledClues,goToStep,edit,boot,perform,saveClick,finishBrief,create,switchCase,runAgent,addClue,chooseEnquiry,regenerateEnquiry,download,copy};
 }
 export type WorkspaceState = ReturnType<typeof useWorkspace>;
 

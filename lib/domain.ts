@@ -161,7 +161,12 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
     };
   }
 
-  const historyForTargetIndex = existingHistory.findIndex(h => h.enquiry.leadId === lead.id);
+  const historyForTargetIndex = existingHistory.findLastIndex ? existingHistory.findLastIndex(h => h.enquiry.leadId === lead.id) : (() => {
+    for (let i = existingHistory.length - 1; i >= 0; i--) {
+      if (existingHistory[i].enquiry.leadId === lead.id) return i;
+    }
+    return -1;
+  })();
   if (historyForTargetIndex >= 0 && !forceRegenerate) {
     const targetEntry = existingHistory[historyForTargetIndex];
     const archivedActive = stripHistory(file.enquiry);
@@ -179,13 +184,25 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
   };
 }
 
+function formatResponse(r: EnquiryResponse, index: number, parentEnquiry?: Enquiry) {
+  const answeredQ = r.answeredQuestion || parentEnquiry?.question || 'Unknown question (legacy)';
+  const selectedBranch = r.selectedBranchText || (r.outcomeBranch && parentEnquiry ? parentEnquiry[r.outcomeBranch] : undefined) || 'Unknown branch text (legacy)';
+  const receipt = r.receiptId ? `\n- Receipt: ${r.receiptId}` : '\n- Receipt: Unspecified (legacy)';
+  const sourceHandles = r.sourceIds?.length ? `\n- Sourced Handles: ${r.sourceIds.join(', ')}` : '\n- Sourced Handles: None';
+
+  return `#### Response ${index + 1} (${r.outcomeBranch})
+- Answered Question: ${answeredQ}
+- Selected Branch Text: ${selectedBranch}
+- Record Holder: ${r.respondent}
+- Date: ${r.receivedAt}
+- Passage/Absence: ${r.passage}${r.summary ? `\n- Summary: ${r.summary}` : ''}${r.whatChanges ? `\n- What Changes: ${r.whatChanges}` : ''}${r.unresolved ? `\n- Open Uncertainties: ${r.unresolved}` : ''}${receipt}${sourceHandles}`;
+}
+
 export function exportBrief(file: CaseFile) {
   const enquiry=file.enquiry;const lead=file.leads.find(l=>l.id===enquiry?.leadId);
   const responses = enquiry?.responses?.length ? enquiry.responses : (enquiry?.response ? [enquiry.response] : []);
   const responseSection = responses.length
-    ? `### Response History\n` + responses.map((r, i) =>
-        `#### Response ${i + 1} (${r.outcomeBranch})\n- Record Holder: ${r.respondent}\n- Date: ${r.receivedAt}\n- Passage/Absence: ${r.passage}${r.summary ? `\n- Summary: ${r.summary}` : ''}${r.whatChanges ? `\n- What Changes: ${r.whatChanges}` : ''}${r.unresolved ? `\n- Open Uncertainties: ${r.unresolved}` : ''}${r.receiptId ? `\n- Receipt: ${r.receiptId}` : ''}`
-      ).join('\n\n')
+    ? `### Response History\n` + responses.map((r, i) => formatResponse(r, i, enquiry)).join('\n\n')
     : 'No responses recorded yet.';
 
   const outcomeText = enquiry?.outcomeBranch
@@ -197,11 +214,12 @@ export function exportBrief(file: CaseFile) {
         const archivedLead = file.leads.find(l => l.id === h.enquiry.leadId);
         const archivedResponses = h.enquiry.responses?.length ? h.enquiry.responses : (h.enquiry.response ? [h.enquiry.response] : []);
         const respText = archivedResponses.length
-          ? archivedResponses.map((r, ri) =>
-              `#### Response ${ri + 1} (${r.outcomeBranch})\n- Record Holder: ${r.respondent}\n- Date: ${r.receivedAt}\n- Passage/Absence: ${r.passage}${r.summary ? `\n- Summary: ${r.summary}` : ''}${r.whatChanges ? `\n- What Changes: ${r.whatChanges}` : ''}${r.unresolved ? `\n- Open Uncertainties: ${r.unresolved}` : ''}`
-            ).join('\n\n')
+          ? archivedResponses.map((r, ri) => formatResponse(r, ri, h.enquiry)).join('\n\n')
           : 'No responses recorded for this archived enquiry.';
-        return `### Archived Enquiry ${i + 1}: ${archivedLead?.name || 'Unresolved Lead'} (${h.recordedAt})\nQuestion: ${h.enquiry.question}\nRecord to check: ${h.enquiry.recordTarget || 'Not specified.'}\n\nRationale:\n${h.enquiry.rationale}\n\nConfirming branch: ${h.enquiry.confirming}\nConflicting branch: ${h.enquiry.conflicting}\nUnavailable branch: ${h.enquiry.unavailable}\n\n${respText}\n\n#### Draft (Draft only — no message sent via system)\n${h.enquiry.draft}`;
+        const archivedOutcomeText = h.enquiry.outcomeBranch
+          ? `\n\n#### Selected Branch Outcome: ${h.enquiry.outcomeBranch}\n${h.enquiry.revisedActionText || h.enquiry.decisionSummary || ''}`
+          : '';
+        return `### Archived Enquiry ${i + 1}: ${archivedLead?.name || 'Unresolved Lead'} (${h.recordedAt})\nQuestion: ${h.enquiry.question}\nRecord to check: ${h.enquiry.recordTarget || 'Not specified.'}\n\nRationale:\n${h.enquiry.rationale}\n\nConfirming branch: ${h.enquiry.confirming}\nConflicting branch: ${h.enquiry.conflicting}\nUnavailable branch: ${h.enquiry.unavailable}\n\n${respText}${archivedOutcomeText}\n\n#### Draft (Draft only — no message sent via system)\n${h.enquiry.draft}`;
       }).join('\n\n')
     : '';
 
