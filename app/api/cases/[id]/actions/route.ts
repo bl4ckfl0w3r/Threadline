@@ -32,6 +32,9 @@ export async function POST(request:Request,context:Context){
       const lead=file.leads.find(l=>l.id===action.leadId);
       if(!lead)throw new AppError('Choose an existing lead for this enquiry.');
       if(action.sourceIds?.some(id=>!file!.sources.some(s=>s.id===id && s.leadId===action.leadId)))throw new AppError('Sources must belong to the selected lead.');
+      if(action.expectedQuestion && file.enquiry?.question !== action.expectedQuestion){
+        throw new AppError('The enquiry question changed since this response was drafted. Please review the updated enquiry before recording a response.', 400);
+      }
       if(!file.enquiry || file.enquiry.leadId!==action.leadId){
         file.enquiry=draftEnquiry(file,lead);
       }

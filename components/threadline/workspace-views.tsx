@@ -1,7 +1,8 @@
 'use client';
+import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, Check, DownloadSimple, LinkSimple, MagnifyingGlass, MapPin, PencilSimple, Plus, X } from '@phosphor-icons/react';
-import { regions, when, type WorkspaceState } from './use-workspace';
-import type { CaseFile, Clue } from '@/lib/contracts';
+import { regions, when, type WorkspaceState } from './use-workspace.ts';
+import type { CaseFile, Clue } from '../../lib/contracts.ts';
 
 export function RecoveryBanner({w}:{w:WorkspaceState}) {
   if (!w.recoveryState) return null;
@@ -17,6 +18,7 @@ export function RecoveryBanner({w}:{w:WorkspaceState}) {
 }
 
 export function ParkedDraftsBanner({w}:{w:WorkspaceState}) {
+  const [reviewingKey, setReviewingKey] = useState<string | null>(null);
   const summaries = w.getParkedDraftSummaries ? w.getParkedDraftSummaries() : [];
   if (!summaries.length) return null;
 
@@ -24,24 +26,35 @@ export function ParkedDraftsBanner({w}:{w:WorkspaceState}) {
     <div className="feedback notice parked-drafts-banner" style={{ margin: '1rem 0', padding: '0.75rem 1rem', border: '1px solid var(--line, #ccc)', borderRadius: '4px', background: 'var(--card-bg, #f9f9f9)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <strong>Parked Unsaved Drafts ({summaries.length})</strong>
-        <button type="button" className="text-button" onClick={() => w.clearAllParkedDrafts()}>
+        <button type="button" className="text-button" onClick={() => { setReviewingKey(null); w.clearAllParkedDrafts(); }}>
           Clear All Parked Drafts
         </button>
       </div>
       <ul style={{ marginTop: '0.5rem', listStyle: 'none', paddingLeft: 0, marginBottom: 0 }}>
         {summaries.map(s => (
-          <li key={s.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem', fontSize: '0.85rem' }}>
-            <span>
-              <em>{s.type === 'source' ? 'Source Note' : 'Response'}</em> for <strong>{s.leadName}</strong>: &ldquo;{s.preview.slice(0, 40)}{s.preview.length > 40 ? '…' : ''}&rdquo;
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="button" className="text-button" onClick={() => w.restoreParkedDraft(s)}>
-                Restore
-              </button>
-              <button type="button" className="text-button" onClick={() => w.discardParkedDraft(s.key, s.type)}>
-                Discard
-              </button>
+          <li key={s.key} style={{ marginTop: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--line, #eee)', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>
+                <em>{s.type === 'source' ? 'Source Note' : 'Response'}</em> for <strong>{s.leadName}</strong> (Case: {s.caseId}): &ldquo;{s.preview.slice(0, 40)}{s.preview.length > 40 ? '…' : ''}&rdquo;
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="text-button" onClick={() => setReviewingKey(reviewingKey === s.key ? null : s.key)}>
+                  {reviewingKey === s.key ? 'Hide Review' : 'Review'}
+                </button>
+                <button type="button" className="text-button" onClick={() => w.copyParkedDraft(s)}>
+                  Copy
+                </button>
+                <button type="button" className="text-button" onClick={() => { if (reviewingKey === s.key) setReviewingKey(null); w.discardParkedDraft(s.key, s.type); }}>
+                  Discard
+                </button>
+              </div>
             </div>
+            {reviewingKey === s.key && (
+              <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#fff', border: '1px solid #ddd', borderRadius: '4px' }}>
+                <strong>Origin &amp; Parked Content Context:</strong>
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', marginTop: '0.25rem', marginBottom: 0 }}>{s.details}</pre>
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -136,6 +149,7 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
           const res = await w.perform({
             type: 'record_enquiry_response',
             leadId: targetEnquiryLeadId,
+            expectedQuestion: e.question,
             respondent: w.responseForm.respondent,
             receivedAt: w.responseForm.receivedAt,
             passage: w.responseForm.passage,
@@ -146,9 +160,6 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
             summary: w.responseForm.summary || `${w.responseForm.respondent} (${w.responseForm.outcomeBranch})`,
             revisedActionText: w.responseForm.revisedActionText || w.responseForm.whatChanges
           }, 'Recording response');
-          if (res) {
-            w.clearResponseForm(targetKey);
-          }
         }}>
           <label className="field">Source Record Holder / Respondent
             <input required value={w.responseForm.respondent} disabled={w.disabled} onChange={evt=>w.setResponseForm({...w.responseForm, respondent: evt.target.value})} placeholder="Archive officer, venue manager…" />
@@ -215,8 +226,8 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
                       {hResponses.map((r, rIdx) => (
                         <div key={r.id || rIdx} style={{ padding: '0.5rem', marginTop: '0.25rem', border: '1px solid var(--line, #eee)', borderRadius: '4px' }}>
                           <strong>{r.respondent}</strong> ({r.outcomeBranch}) — {r.receivedAt}
-                          {r.answeredQuestion && <p style={{ fontSize: '0.85rem', color: '#555' }}><em>Answered Question:</em> {r.answeredQuestion}</p>}
-                          {r.selectedBranchText && <p style={{ fontSize: '0.85rem', color: '#555' }}><em>Selected Branch Text:</em> {r.selectedBranchText}</p>}
+                          <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Answered Question:</em> {r.answeredQuestion || 'not captured (legacy)'}</p>
+                          <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Selected Branch Text:</em> {r.selectedBranchText || 'not captured (legacy)'}</p>
                           <p style={{ marginTop: '0.25rem' }}>{r.passage}</p>
                           {r.whatChanges && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Changes:</strong> {r.whatChanges}</p>}
                           {r.unresolved && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Uncertainty:</strong> {r.unresolved}</p>}
@@ -247,8 +258,8 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
           {responses.map((resp, idx) => (
             <article key={resp.id || idx} style={{ padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--line, #ccc)', borderRadius: '4px' }}>
               <strong>{resp.respondent}</strong> ({resp.outcomeBranch}) — <small>{resp.receivedAt}</small>
-              {resp.answeredQuestion && <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Question:</em> {resp.answeredQuestion}</p>}
-              {resp.selectedBranchText && <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Branch Text:</em> {resp.selectedBranchText}</p>}
+              <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Question:</em> {resp.answeredQuestion || 'not captured (legacy)'}</p>
+              <p style={{ fontSize: '0.85rem', color: '#555', marginTop: '0.25rem' }}><em>Branch Text:</em> {resp.selectedBranchText || 'not captured (legacy)'}</p>
               <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{resp.passage}</p>
               {resp.whatChanges && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Changes:</strong> {resp.whatChanges}</p>}
               {resp.unresolved && <p style={{ fontSize: '0.85rem', color: '#555' }}><strong>Uncertainty:</strong> {resp.unresolved}</p>}

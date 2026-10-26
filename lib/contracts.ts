@@ -63,6 +63,7 @@ export type ResearchAction =
   | {
       type: 'record_enquiry_response';
       leadId: string;
+      expectedQuestion?: string;
       respondent: string;
       receivedAt: string;
       passage: string;

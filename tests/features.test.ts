@@ -1,7 +1,130 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { blankCase, applyEdits, draftEnquiry, compareQueries, exportBrief, actionSchema } from '../lib/domain.ts';
 import type { Query } from '../lib/contracts.ts';
+import { useWorkspace } from '../components/threadline/use-workspace.ts';
+
+// Setup minimal DOM globals for React 19 test harness
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+class MockElement {
+  nodeType = 1;
+  nodeName = 'DIV';
+  tagName = 'DIV';
+  namespaceURI = 'http://www.w3.org/1999/xhtml';
+  childNodes: any[] = [];
+  style = {};
+  ownerDocument = null as any;
+  addEventListener() {}
+  removeEventListener() {}
+  appendChild(child: any) { this.childNodes.push(child); return child; }
+  removeChild(child: any) { this.childNodes = this.childNodes.filter(c => c !== child); return child; }
+  insertBefore(child: any, ref: any) { this.childNodes.push(child); return child; }
+}
+
+const mockWin = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => true,
+  matchMedia: () => ({ matches: false }),
+  HTMLIFrameElement: class {},
+};
+
+const mockDoc = {
+  createElement: () => { const el = new MockElement(); el.ownerDocument = mockDoc; return el; },
+  createElementNS: () => { const el = new MockElement(); el.ownerDocument = mockDoc; return el; },
+  createTextNode: (text: string) => ({ nodeType: 3, nodeValue: text, ownerDocument: mockDoc }),
+  body: new MockElement(),
+  defaultView: mockWin,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
+mockDoc.body.ownerDocument = mockDoc;
+
+if (!globalThis.document) {
+  Object.defineProperty(globalThis, 'document', { value: mockDoc, writable: true, configurable: true });
+}
+if (!globalThis.window) {
+  Object.defineProperty(globalThis, 'window', { value: mockWin, writable: true, configurable: true });
+}
+if (!globalThis.navigator) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText: async () => {} } },
+    writable: true,
+    configurable: true
+  });
+}
+if (!globalThis.localStorage) {
+  const store = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => store.get(key) || null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear()
+    },
+    writable: true,
+    configurable: true
+  });
+}
+
+const mockCaseData = blankCase('test-case');
+const defaultFetchMock = async (url: any, options?: any) => {
+  const urlStr = String(url);
+  if (urlStr.endsWith('/api/status')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ mode: 'live', services: { webSearch: true, placeDetails: true } })
+    } as any;
+  }
+  if (urlStr.endsWith('/api/cases') && (!options || !options.method || options.method === 'GET')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cases: [{ id: mockCaseData.id, title: mockCaseData.title, mode: mockCaseData.mode, updatedAt: mockCaseData.updatedAt }]
+      })
+    } as any;
+  }
+  if (urlStr.endsWith('/api/cases') && options?.method === 'POST') {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ case: mockCaseData, cases: [{ id: mockCaseData.id, title: mockCaseData.title, mode: mockCaseData.mode, updatedAt: mockCaseData.updatedAt }] })
+    } as any;
+  }
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ case: mockCaseData, cases: [{ id: mockCaseData.id, title: mockCaseData.title, mode: mockCaseData.mode, updatedAt: mockCaseData.updatedAt }] })
+  } as any;
+};
+
+globalThis.fetch = defaultFetchMock as any;
+
+function renderWorkspaceHook() {
+  let hook = { current: null as any };
+  function TestComponent() {
+    hook.current = useWorkspace();
+    return null;
+  }
+  const container = mockDoc.createElement();
+  const root = createRoot(container as any);
+  act(() => {
+    root.render(React.createElement(TestComponent));
+  });
+  return {
+    hook,
+    run: async (fn?: () => void | Promise<void>) => {
+      await act(async () => {
+        if (fn) await fn();
+      });
+    }
+  };
+}
 
 test('record_enquiry_response action schema validation', () => {
   const validAction = {
@@ -293,81 +416,266 @@ test('exportBrief formats response history, outcome branch, input snapshots, and
   assert.match(brief, /Input snapshot: Reference Book\./);
 });
 
-test('P1 Defect 1: Response and Source composer origin keys are separate and validated', () => {
-  const file = blankCase('origin-key-test');
+test('production hook: Q1 -> regenerate blocked/guarded flow and controller mismatch rejection', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('reg-guard-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+  file.enquiry = draftEnquiry(file, leadA);
+  const q1 = file.enquiry.question;
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, enquiry: file.enquiry });
+    hook.current.setLeadId('lead-A');
+  });
+
+  await run(() => {
+    hook.current.setResponseForm((prev: any) => ({ ...prev, respondent: 'Archivist', passage: 'Typed Q1 response' }));
+  });
+
+  // Attempt regenerate while response draft exists
+  await run(() => {
+    hook.current.regenerateEnquiry(leadA);
+  });
+
+  // Regeneration should be blocked with error message
+  assert.match(hook.current.error, /Cannot regenerate enquiry while an unpersisted response draft exists/);
+  assert.equal(hook.current.file.enquiry.question, q1);
+
+  // Clear response form, update case date so new question differs, and retry regeneration
+  await run(() => {
+    hook.current.setError('');
+    hook.current.clearResponseForm();
+    hook.current.edit({ startDate: '2026-11-01' });
+  });
+
+  await run(() => {
+    hook.current.regenerateEnquiry(leadA);
+  });
+
+  // Now regeneration succeeds and archives Q1
+  assert.notEqual(hook.current.file.enquiry.question, q1);
+  assert.equal(hook.current.file.enquiry.history?.[0]?.enquiry.question, q1);
+});
+
+test('production hook: Enquiry A -> browse B -> return A -> type -> draft B', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('browse-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA, leadB];
+  file.enquiry = draftEnquiry(file, leadA);
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, enquiry: file.enquiry });
+    // Browse B
+    hook.current.setLeadId('lead-B');
+    // Return A
+    hook.current.setLeadId('lead-A');
+  });
+
+  await run(() => {
+    // Type into response form for A
+    hook.current.setResponseForm((prev: any) => ({ ...prev, respondent: 'Archivist A', passage: 'Text for A' }));
+  });
+
+  // Now draft enquiry for B
+  await run(() => {
+    hook.current.chooseEnquiry(leadB);
+  });
+
+  // Assert enquiry B is active
+  assert.equal(hook.current.file.enquiry.leadId, 'lead-B');
+
+  // Assert Lead A's response draft was parked in summaries
+  const summaries = hook.current.getParkedDraftSummaries();
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].type, 'response');
+  assert.equal(summaries[0].leadName, 'Venue A');
+
+  // Active response form for B is fresh
+  assert.equal(hook.current.responseForm.respondent, '');
+  assert.equal(hook.current.responseForm.passage, '');
+});
+
+test('production hook: Source fallback uses actual selected lead', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('source-fallback-test');
+  const lead1 = { id: 'lead-1', name: 'Venue 1', address: '1 St', tags: [], introducedBy: 'q' };
+  const lead2 = { id: 'lead-2', name: 'Venue 2', address: '2 St', tags: [], introducedBy: 'q' };
+  file.leads = [lead1, lead2];
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, clues: [] });
+  });
+
+  // When no leadId is selected, selected defaults to selected lead (lead1)
+  assert.equal(hook.current.selected.id, 'lead-1');
+  assert.match(hook.current.sourceComposerKey, /source:lead-1/);
+
+  // When leadId is set to lead2, selected and sourceComposerKey update to lead2
+  await run(() => {
+    hook.current.setLeadId('lead-2');
+  });
+  assert.equal(hook.current.selected.id, 'lead-2');
+  assert.match(hook.current.sourceComposerKey, /source:lead-2/);
+});
+
+test('production hook: Parked case review / discard / unload', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('parked-review-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, clues: [] });
+    hook.current.setSourceForm({ title: 'Parked Title', url: 'https://example.com', excerpt: 'Parked Passage', note: 'Establish date', kind: 'user_excerpt' });
+  });
+
+  // Switch to lead B (or clear lead selection)
+  await run(() => {
+    hook.current.setLeadId('other-lead');
+  });
+
+  // Verify parked summary is generated with full review details
+  const summaries = hook.current.getParkedDraftSummaries();
+  assert.equal(summaries.length, 1);
+  assert.match(summaries[0].details, /Title: Parked Title/);
+  assert.match(summaries[0].details, /Excerpt: Parked Passage/);
+
+  // Verify total unsaved field count and unload protection
+  assert.equal(hook.current.totalUnsavedFieldCount, 4);
+  assert.equal(hook.current.dirty, true);
+
+  // Discard parked draft and verify immediate re-render
+  await run(() => {
+    hook.current.discardParkedDraft(summaries[0].key, 'source');
+  });
+
+  assert.equal(hook.current.getParkedDraftSummaries().length, 0);
+  assert.equal(hook.current.totalUnsavedFieldCount, 0);
+});
+
+test('production hook: Deferred success after switching or editing', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('deferred-success-test');
   const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
   const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
   file.leads = [leadA, leadB];
 
-  // Open enquiry for Lead A
-  file.enquiry = draftEnquiry(file, leadA);
-  file.enquiry.question = 'Question for A?';
+  let resolveSave: (() => void) | undefined;
+  const savePromise = new Promise<void>(r => { resolveSave = r; });
 
-  // Key derivation logic as used in useWorkspace:
-  const selectedSourceLeadId = 'lead-B'; // browsing Lead B in Sources View
-  const sourceComposerKey = `${file.id}:source:${selectedSourceLeadId}`;
-  const responseComposerKey = `${file.id}:response:${file.enquiry.leadId}`;
-
-  assert.equal(sourceComposerKey, 'origin-key-test:source:lead-B');
-  assert.equal(responseComposerKey, 'origin-key-test:response:lead-A');
-
-  // Record response for Lead A (e.leadId is lead-A)
-  const responseA = {
-    id: 'resp-a',
-    respondent: 'Archivist A',
-    receivedAt: '2026-10-26',
-    passage: 'Passage for A',
-    outcomeBranch: 'confirming' as const,
-    answeredQuestion: file.enquiry.question,
-    selectedBranchText: file.enquiry.confirming
+  // Mock global fetch for save API call with deferred resolution
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url: any) => {
+    await savePromise;
+    const caseObj = { ...hook.current.file, revision: (hook.current.file.revision || 0) + 1 };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ case: caseObj, cases: [{ id: caseObj.id, title: caseObj.title, mode: caseObj.mode, updatedAt: caseObj.updatedAt }] })
+    } as any;
   };
-  file.enquiry.response = responseA;
-  file.enquiry.responses = [responseA];
 
-  // Now user drafts enquiry for Lead B
-  const enquiryB = draftEnquiry(file, leadB);
-  assert.equal(enquiryB.leadId, 'lead-B');
-  assert.equal(enquiryB.responses, undefined); // B does not inherit A's response
-  assert.equal(enquiryB.history?.[0]?.enquiry.leadId, 'lead-A');
-  assert.equal(enquiryB.history?.[0]?.enquiry.responses?.[0]?.respondent, 'Archivist A');
+  try {
+    await run(() => {
+      hook.current.edit({ id: file.id, leads: file.leads, clues: [] });
+      hook.current.setLeadId('lead-A');
+    });
+
+    await run(() => {
+      hook.current.setSourceForm({ title: 'A Title', url: '', excerpt: 'A Excerpt', note: '', kind: 'user_excerpt' });
+    });
+
+    // Start perform action for A
+    let performPromise: Promise<any>;
+    await run(() => {
+      performPromise = hook.current.perform({
+        type: 'source',
+        leadId: 'lead-A',
+        title: 'A Title',
+        excerpt: 'A Excerpt',
+        note: '',
+        kind: 'user_excerpt'
+      }, 'Saving source note');
+    });
+
+    // While perform is pending, switch lead to B and set sourceForm for B
+    await run(() => {
+      hook.current.setLeadId('lead-B');
+    });
+    await run(() => {
+      hook.current.setSourceForm({ title: 'B Title', url: '', excerpt: 'B Excerpt', note: '', kind: 'user_excerpt' });
+    });
+
+    // Resolve API request and complete perform action promise
+    await run(async () => {
+      resolveSave?.();
+      await performPromise;
+    });
+
+    // B's form state is preserved
+    assert.equal(hook.current.sourceForm.title, 'B Title');
+    assert.equal(hook.current.sourceForm.excerpt, 'B Excerpt');
+
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test('P2 Defect 2: Parked draft unload protection and sensitive storage exclusion', () => {
-  const file = blankCase('parked-draft-test');
+test('production hook: Failure retention preserves draft', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('failure-retention-test');
   const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
   file.leads = [leadA];
 
-  // Simulate parked draft helper logic
-  const sourceDrafts = new Map<string, any>();
-  const responseDrafts = new Map<string, any>();
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, clues: [] });
+    hook.current.setLeadId('lead-A');
+  });
 
-  // Park a draft for Lead A
-  const keyA = `${file.id}:source:lead-A`;
-  sourceDrafts.set(keyA, { title: 'Parked Source Title', excerpt: 'Parked passage text', note: '', kind: 'user_excerpt' });
+  await run(() => {
+    hook.current.setSourceForm({ title: 'Draft to keep', url: '', excerpt: 'Excerpt to keep', note: '', kind: 'user_excerpt' });
+  });
 
-  // Calculate parked summaries
-  const isSourceNonEmpty = (f: any) => !!(f.title?.trim() || f.excerpt?.trim() || f.note?.trim() || f.url?.trim());
-  const summaries: Array<{ key: string; leadName: string; type: string }> = [];
-  for (const [k, form] of sourceDrafts.entries()) {
-    if (isSourceNonEmpty(form)) {
-      summaries.push({ key: k, leadName: 'Venue A', type: 'source' });
-    }
+  // Mock global fetch to return an error (failure)
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return {
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'Internal Server Error' })
+    } as any;
+  };
+
+  try {
+    // Perform action which fails
+    await run(async () => {
+      await hook.current.perform({
+        type: 'source',
+        leadId: 'lead-A',
+        title: 'Draft to keep',
+        excerpt: 'Excerpt to keep',
+        note: '',
+        kind: 'user_excerpt'
+      }, 'Saving source note');
+    });
+
+    // Error is displayed and draft form text is preserved
+    assert.match(hook.current.error, /Internal Server Error/);
+    assert.equal(hook.current.sourceForm.title, 'Draft to keep');
+    assert.equal(hook.current.sourceForm.excerpt, 'Excerpt to keep');
+
+  } finally {
+    globalThis.fetch = originalFetch;
   }
-
-  assert.equal(summaries.length, 1);
-  assert.equal(summaries[0].leadName, 'Venue A');
-
-  // Verify unload protection dirty state
-  const hasParked = summaries.length > 0;
-  const dirty = hasParked; // includes parked drafts
-  assert.equal(dirty, true);
-
-  // Verify localStorage contains NO draft content or sensitive case details
-  const dummyLocalStorage: Record<string, string> = {};
-  dummyLocalStorage['threadline-case'] = file.id; // Only case ID stored
-  assert.equal(Object.keys(dummyLocalStorage).length, 1);
-  assert.equal(dummyLocalStorage['threadline-case'], 'parked-draft-test');
-  assert.equal(JSON.stringify(dummyLocalStorage).includes('Parked Source Title'), false);
 });
 
 test('P2 Defect 3: Export brief preserves immutable response provenance across editing and archival', () => {

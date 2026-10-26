@@ -53,6 +53,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('record_enquiry_response'),
     leadId: z.string().max(100),
+    expectedQuestion: z.string().trim().max(2000).optional(),
     respondent: z.string().trim().min(1).max(200),
     receivedAt: date,
     passage: z.string().trim().min(1).max(4000),
@@ -184,9 +185,9 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
   };
 }
 
-function formatResponse(r: EnquiryResponse, index: number, parentEnquiry?: Enquiry) {
-  const answeredQ = r.answeredQuestion || parentEnquiry?.question || 'Unknown question (legacy)';
-  const selectedBranch = r.selectedBranchText || (r.outcomeBranch && parentEnquiry ? parentEnquiry[r.outcomeBranch] : undefined) || 'Unknown branch text (legacy)';
+function formatResponse(r: EnquiryResponse, index: number) {
+  const answeredQ = r.answeredQuestion || 'not captured (legacy)';
+  const selectedBranch = r.selectedBranchText || 'not captured (legacy)';
   const receipt = r.receiptId ? `\n- Receipt: ${r.receiptId}` : '\n- Receipt: Unspecified (legacy)';
   const sourceHandles = r.sourceIds?.length ? `\n- Sourced Handles: ${r.sourceIds.join(', ')}` : '\n- Sourced Handles: None';
 
@@ -202,7 +203,7 @@ export function exportBrief(file: CaseFile) {
   const enquiry=file.enquiry;const lead=file.leads.find(l=>l.id===enquiry?.leadId);
   const responses = enquiry?.responses?.length ? enquiry.responses : (enquiry?.response ? [enquiry.response] : []);
   const responseSection = responses.length
-    ? `### Response History\n` + responses.map((r, i) => formatResponse(r, i, enquiry)).join('\n\n')
+    ? `### Response History\n` + responses.map((r, i) => formatResponse(r, i)).join('\n\n')
     : 'No responses recorded yet.';
 
   const outcomeText = enquiry?.outcomeBranch
@@ -214,7 +215,7 @@ export function exportBrief(file: CaseFile) {
         const archivedLead = file.leads.find(l => l.id === h.enquiry.leadId);
         const archivedResponses = h.enquiry.responses?.length ? h.enquiry.responses : (h.enquiry.response ? [h.enquiry.response] : []);
         const respText = archivedResponses.length
-          ? archivedResponses.map((r, ri) => formatResponse(r, ri, h.enquiry)).join('\n\n')
+          ? archivedResponses.map((r, ri) => formatResponse(r, ri)).join('\n\n')
           : 'No responses recorded for this archived enquiry.';
         const archivedOutcomeText = h.enquiry.outcomeBranch
           ? `\n\n#### Selected Branch Outcome: ${h.enquiry.outcomeBranch}\n${h.enquiry.revisedActionText || h.enquiry.decisionSummary || ''}`
