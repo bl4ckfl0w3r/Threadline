@@ -1,5 +1,9 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
+export const demoAssets = sqliteTable('demo_assets', {
+  id: text('id').primaryKey(), document: text('document').notNull(),
+});
+
 export const usageBuckets = sqliteTable('usage_buckets', {
   bucket: text('bucket').primaryKey(), used: integer('used').notNull().default(0),
   expiresAt: integer('expires_at').notNull(),

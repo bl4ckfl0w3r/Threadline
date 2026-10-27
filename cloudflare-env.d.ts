@@ -6,5 +6,6 @@ declare namespace Cloudflare {
     ACCESS_AUD?: string;
     AUTH_MODE?: 'browser-session' | 'cloudflare-access';
     SESSION_SIGNING_KEY?: string;
+    RELEASE_SHA?: string;
   }
 }

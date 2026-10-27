@@ -40,7 +40,7 @@ After `pnpm build`, run `node scripts/prepare-cloudflare.mjs private/cloudflare.
 
 HTML metadata, Worker responses and static-asset headers request `noindex`. `robots.txt` allows crawlers to see these directives rather than hiding them behind a conflicting crawl prohibition. Search exclusion is not access control. Anyone with the link can open the preview, while case access requires the owning browser session. Server limits cap session/case creation, API requests and provider attempts; the network address used for request limits is stored only as a keyed hash. Daily provider limits are 200 attempts per workspace and 1,000 across the preview, including a separate 100-attempt model cap. These limits also count failed attempts and may conservatively reserve capacity before an attempted call fails.
 
-The recorded demo data, local case database and internal handoff are intentionally absent from a clone. `/api/demo` returns an explicit unavailable response when a compatible recording is not installed. Do not add fabricated provider results to make a clean clone look live. The fallback starter is only a blank fictional example.
+The recorded demo data, local case database and internal handoff are intentionally absent from a clone. The curated fictional demo lives in the production D1 `demo_assets` table, independent of application builds. `/api/demo` returns an explicit unavailable response when a compatible recording is not installed. Do not add fabricated provider results to make a clean clone look live. The fallback starter is only a blank fictional example.
 
 ## Repository handling
 
@@ -55,3 +55,15 @@ Third-party notices remain alongside their vendored sources. An application-wide
 - `pnpm build`
 
 Internal planning documents, research archives, local database files, exports and credentials are intentionally excluded from this repository. Do not force-add them.
+
+## Reproducible production releases
+
+Production is intended to deploy from GitHub `main` through Cloudflare Workers Builds. Configure the existing Worker with the private repository, production branch `main`, preview/non-production branch deployments disabled, build command `pnpm run build:production`, and deploy command `pnpm run deploy:production`. The connection itself must be enabled in Cloudflare; adding these scripts alone does not enable automatic deployments.
+
+Set these build variables (identifiers, never provider secrets): `CLOUDFLARE_ACCOUNT_ID`, `THREADLINE_WORKER_NAME`, `THREADLINE_DATABASE_NAME`, `THREADLINE_DATABASE_ID`, and `THREADLINE_PRODUCTION_URL`. Pin the build Node version to the tested toolchain, and use the pnpm version pinned in package.json. The build token needs Workers deployment and D1 migration permissions for the target account. Runtime `QLOO_API_KEY`, `SESSION_SIGNING_KEY`, and optional model credentials stay in Worker secrets, separate from build variables.
+
+Every production build runs tests, typecheck, and the build, then records the exact Git revision. Deployment refuses dirty checkouts, non-main branches, and mismatched build revisions. It applies D1 migrations, deploys, and checks the live revision, noindex header, session isolation, service configuration, and demo. A failed build does not reach the deploy command. A post-deploy smoke failure reports a failed release and requires inspection; it does not claim a successful rollback.
+
+For an explicitly authorized manual release from a clean main checkout, use `pnpm run build:production -- private/cloudflare.json`, then set `THREADLINE_PRODUCTION_URL` and run `pnpm run deploy:production`. Verify `X-Threadline-Revision` against `git rev-parse HEAD`. Future schema changes must remain compatible with the previous deployed version until deployment completes.
+
+To install or deliberately replace the curated fictional demo once, prepare an ignored SQL file with `node scripts/prepare-demo-seed.mjs data/recorded/example.json private/demo-seed.sql`, inspect the source recording, and execute that SQL against the production DB after applying migrations. Do not run this seed on every deployment and never use an investigator's saved case as the demo. Ordinary deployments preserve existing cases, receipts, demo data, and Worker secrets.

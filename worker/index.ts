@@ -56,6 +56,7 @@ const worker = {
     }
     try {
       const response = privateResponse(await runWithConnectorBinding(binding, () => handler.fetch(authenticated, env, ctx)));
+      if (env.RELEASE_SHA) response.headers.set('X-Threadline-Revision', env.RELEASE_SHA);
       if (sessionCookie) response.headers.append('Set-Cookie', sessionCookie);
       return response;
     } catch {
