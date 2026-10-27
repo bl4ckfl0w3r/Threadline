@@ -892,3 +892,84 @@ test('production hook regression: Query-dependent selected source fallback', asy
   assert.equal(hook.current.selectedSources[0].id, 'src-2');
 });
 
+test('production hook regression: SourcesView submit relies on perform clearSourceFormOnSuccess and preserves Lead B draft', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('sources-view-submit-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  const leadB = { id: 'lead-B', name: 'Venue B', address: '456 B St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA, leadB];
+
+  let resolveSave: (() => void) | undefined;
+  const savePromise = new Promise<void>(r => { resolveSave = r; });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    await savePromise;
+    const caseObj = { ...hook.current.file, revision: (hook.current.file.revision || 0) + 1 };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ case: caseObj, cases: [{ id: caseObj.id, title: caseObj.title, mode: caseObj.mode, updatedAt: caseObj.updatedAt }] })
+    } as any;
+  };
+
+  try {
+    await run(() => {
+      hook.current.edit({ id: file.id, leads: file.leads, clues: [] });
+      hook.current.setLeadId('lead-A');
+    });
+
+    await run(() => {
+      hook.current.setSourceForm({ title: 'A Title', url: '', excerpt: 'A Excerpt', note: '', kind: 'user_excerpt' });
+    });
+
+    // Start perform for lead-A
+    let performPromise: Promise<any>;
+    await run(() => {
+      performPromise = hook.current.perform({
+        type: 'source',
+        leadId: 'lead-A',
+        title: 'A Title',
+        excerpt: 'A Excerpt',
+        note: '',
+        kind: 'user_excerpt'
+      }, 'Saving source note');
+    });
+
+    // Switch to lead-B and type a new draft
+    await run(() => {
+      hook.current.setLeadId('lead-B');
+    });
+    await run(() => {
+      hook.current.setSourceForm({ title: 'B Title', url: '', excerpt: 'B Excerpt', note: '', kind: 'user_excerpt' });
+    });
+
+    // Complete perform action for lead-A
+    await run(async () => {
+      resolveSave?.();
+      await performPromise;
+    });
+
+    // Lead B draft remains active and untouched
+    assert.equal(hook.current.sourceForm.title, 'B Title');
+    assert.equal(hook.current.sourceForm.excerpt, 'B Excerpt');
+
+    // Switching back to lead-A shows empty form (since lead-A was submitted successfully and cleared)
+    await run(() => {
+      hook.current.setLeadId('lead-A');
+    });
+    assert.equal(hook.current.sourceForm.title, '');
+    assert.equal(hook.current.sourceForm.excerpt, '');
+
+    // Switching back to lead-B restores B's draft from parked drafts
+    await run(() => {
+      hook.current.setLeadId('lead-B');
+    });
+    assert.equal(hook.current.sourceForm.title, 'B Title');
+    assert.equal(hook.current.sourceForm.excerpt, 'B Excerpt');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
