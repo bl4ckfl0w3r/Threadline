@@ -1,7 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import type {CaseFile,CaseSummary,CaseEdits,Clue,Enquiry,Lead,ResearchAction,Services,Step} from '../../lib/contracts.ts';
-import {compareQueries,draftEnquiry} from '../../lib/domain.ts';
+import type {CaseFile,CaseSummary,CaseEdits,Clue,Enquiry,Lead,ResearchAction,Services,Step,EnquiryIdentity} from '../../lib/contracts.ts';
+import {compareQueries,draftEnquiry,getEnquiryIdentity,getEnquiryIdentityJson} from '../../lib/domain.ts';
 
 export const regions=[{name:'London',lat:51.5072,lon:-0.1276},{name:'New York',lat:40.7128,lon:-74.006},{name:'Paris',lat:48.8566,lon:2.3522},{name:'Mumbai',lat:19.076,lon:72.8777},{name:'Custom area',lat:0,lon:0}];
 async function api<T = {case:CaseFile;cases:CaseSummary[]}>(path:string,method='GET',body?:unknown){
@@ -21,10 +21,14 @@ export function useWorkspace(){
   const previousStep=useRef<Step>('case');
   const [step,setStep]=useState<Step>('case'),[busy,setBusy]=useState('Opening workspace'),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const [queryId,setQueryId]=useState(''),[compareId,setCompareId]=useState(''),[leadId,setLeadId]=useState(''),[filter,setFilter]=useState(''),[newClue,setNewClue]=useState(''),[newKind,setNewKind]=useState<Clue['kind']>('artist');
+
+  const initialDateRef = useRef<string>(new Date().toISOString().slice(0, 10));
+  const initialDefaultDate = initialDateRef.current;
+
   const [sourceForm,setSourceForm]=useState({title:'',url:'',excerpt:'',note:'',kind:'user_excerpt' as 'user_excerpt'|'user_record'});
   const [responseForm,setResponseForm]=useState({
     respondent:'',
-    receivedAt:new Date().toISOString().slice(0,10),
+    receivedAt:initialDefaultDate,
     passage:'',
     outcomeBranch:'confirming' as 'confirming'|'conflicting'|'unavailable',
     sourceIds:[] as string[],
@@ -37,15 +41,16 @@ export function useWorkspace(){
   const bumpDraftVersion = () => setDraftVersion(v => v + 1);
 
   const sourceDraftsRef = useRef<Map<string, typeof sourceForm>>(new Map());
-  const responseDraftsRef = useRef<Map<string, typeof responseForm>>(new Map());
+  const responseDraftsRef = useRef<Map<string, { form: typeof responseForm; enquirySnapshot?: EnquiryIdentity }>>(new Map());
   const activeSourceKeyRef = useRef<string>('');
   const activeResponseKeyRef = useRef<string>('');
+  const activeResponseSnapshotRef = useRef<EnquiryIdentity | undefined>(undefined);
   const running=useRef(false);const current=useRef<CaseFile|null>(null);const initialized=useRef(false);
 
   const defaultSourceForm: typeof sourceForm = { title: '', url: '', excerpt: '', note: '', kind: 'user_excerpt' };
   const defaultResponseForm: typeof responseForm = {
     respondent: '',
-    receivedAt: new Date().toISOString().slice(0, 10),
+    receivedAt: initialDefaultDate,
     passage: '',
     outcomeBranch: 'confirming',
     sourceIds: [],
@@ -66,9 +71,10 @@ export function useWorkspace(){
   const selectedSourceLeadId = selected?.id || '';
   const sourceComposerKey = file?.id ? (selectedSourceLeadId ? `${file.id}:source:${selectedSourceLeadId}` : `${file.id}:source`) : '';
 
-  const enquiryLeadId = file?.enquiry?.leadId || '';
-  const enquiryQuestion = file?.enquiry?.question || '';
-  const responseComposerKey = file?.id ? (enquiryLeadId ? `${file.id}:response:${enquiryLeadId}:${enquiryQuestion}` : `${file.id}:response`) : '';
+  const enquiryIdentityJson = getEnquiryIdentityJson(file?.enquiry);
+  const activeEnquirySnapshot = getEnquiryIdentity(file?.enquiry);
+
+  const responseComposerKey = file?.id ? (enquiryIdentityJson ? `${file.id}:response:${enquiryIdentityJson}` : `${file.id}:response`) : '';
 
   useEffect(() => {
     const prevKey = activeSourceKeyRef.current;
@@ -87,17 +93,23 @@ export function useWorkspace(){
   useEffect(() => {
     const prevKey = activeResponseKeyRef.current;
     if (prevKey && prevKey !== responseComposerKey) {
-      responseDraftsRef.current.set(prevKey, responseForm);
+      const snap = activeResponseSnapshotRef.current;
+      responseDraftsRef.current.set(prevKey, { form: responseForm, enquirySnapshot: snap });
     }
     if (responseComposerKey && prevKey !== responseComposerKey) {
       activeResponseKeyRef.current = responseComposerKey;
-      const restoredResponse = responseDraftsRef.current.get(responseComposerKey) || {
+      activeResponseSnapshotRef.current = activeEnquirySnapshot || undefined;
+      const restored = responseDraftsRef.current.get(responseComposerKey);
+      const restoredResponse = restored?.form || {
         ...defaultResponseForm,
-        receivedAt: new Date().toISOString().slice(0, 10),
+        receivedAt: initialDefaultDate,
       };
       setResponseForm(restoredResponse);
     } else if (!prevKey && responseComposerKey) {
       activeResponseKeyRef.current = responseComposerKey;
+      activeResponseSnapshotRef.current = activeEnquirySnapshot || undefined;
+    } else if (responseComposerKey && activeResponseKeyRef.current === responseComposerKey) {
+      activeResponseSnapshotRef.current = activeEnquirySnapshot || undefined;
     }
   }, [responseComposerKey]);
 
@@ -111,7 +123,7 @@ export function useWorkspace(){
   function clearResponseForm(key?: string) {
     const targetKey = key || responseComposerKey;
     if (targetKey) responseDraftsRef.current.delete(targetKey);
-    if (!key || key === responseComposerKey) setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
+    if (!key || key === responseComposerKey) setResponseForm({ ...defaultResponseForm, receivedAt: initialDefaultDate });
     bumpDraftVersion();
   }
 
@@ -133,13 +145,13 @@ export function useWorkspace(){
 
   function clearResponseFormOnSuccess(capturedKey: string, submittedSnapshot: typeof responseForm) {
     const parked = responseDraftsRef.current.get(capturedKey);
-    if (parked && JSON.stringify(parked) === JSON.stringify(submittedSnapshot)) {
+    if (parked && JSON.stringify(parked.form) === JSON.stringify(submittedSnapshot)) {
       responseDraftsRef.current.delete(capturedKey);
     }
     if (activeResponseKeyRef.current === capturedKey) {
       setResponseForm(current => {
         if (JSON.stringify(current) === JSON.stringify(submittedSnapshot)) {
-          return { ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) };
+          return { ...defaultResponseForm, receivedAt: initialDefaultDate };
         }
         return current;
       });
@@ -153,6 +165,7 @@ export function useWorkspace(){
     if (f.excerpt.trim()) count++;
     if (f.note.trim()) count++;
     if (f.url.trim()) count++;
+    if (f.kind !== defaultSourceForm.kind) count++;
     return count;
   }
 
@@ -164,6 +177,9 @@ export function useWorkspace(){
     if (f.unresolved.trim()) count++;
     if (f.summary.trim()) count++;
     if (f.revisedActionText.trim()) count++;
+    if (f.outcomeBranch !== 'confirming') count++;
+    if (f.receivedAt && f.receivedAt !== initialDefaultDate) count++;
+    if (f.sourceIds && f.sourceIds.length > 0) count++;
     return count;
   }
 
@@ -178,7 +194,7 @@ export function useWorkspace(){
   const activeSourceFields = countSourceFormFields(sourceForm);
   const activeResponseFields = countResponseFormFields(responseForm);
   const parkedSourceFields = Array.from(sourceDraftsRef.current.entries()).reduce((acc, [k, f]) => k !== sourceComposerKey ? acc + countSourceFormFields(f) : acc, 0);
-  const parkedResponseFields = Array.from(responseDraftsRef.current.entries()).reduce((acc, [k, f]) => k !== responseComposerKey ? acc + countResponseFormFields(f) : acc, 0);
+  const parkedResponseFields = Array.from(responseDraftsRef.current.entries()).reduce((acc, [k, entry]) => k !== responseComposerKey ? acc + countResponseFormFields(entry.form) : acc, 0);
   const newClueFields = newClue.trim() ? 1 : 0;
 
   const totalUnsavedFieldCount = activeSourceFields + activeResponseFields + parkedSourceFields + parkedResponseFields + newClueFields;
@@ -191,8 +207,15 @@ export function useWorkspace(){
       const caseId = parts[0];
       const lId = parts[2] || '';
       const leadName = file?.leads.find(l => l.id === lId)?.name || 'Selected Place';
-      const details = `Title: ${sourceForm.title}\nLink: ${sourceForm.url}\nExcerpt: ${sourceForm.excerpt}\nNote: ${sourceForm.note}`;
-      list.push({ key: sourceComposerKey, caseId, type: 'source', leadId: lId, leadName, preview: sourceForm.title || sourceForm.excerpt, details });
+      const details = [
+        `Kind: ${sourceForm.kind}`,
+        sourceForm.title ? `Title: ${sourceForm.title}` : '',
+        sourceForm.url ? `Link: ${sourceForm.url}` : '',
+        sourceForm.excerpt ? `Excerpt: ${sourceForm.excerpt}` : '',
+        sourceForm.note ? `Note: ${sourceForm.note}` : ''
+      ].filter(Boolean).join('\n');
+      const preview = sourceForm.title || sourceForm.excerpt || `[${sourceForm.kind} selected]`;
+      list.push({ key: sourceComposerKey, caseId, type: 'source', leadId: lId, leadName, preview, details });
     }
     for (const [key, form] of sourceDraftsRef.current.entries()) {
       if (key !== sourceComposerKey && isSourceFormNonEmpty(form)) {
@@ -200,27 +223,83 @@ export function useWorkspace(){
         const caseId = parts[0];
         const lId = parts[2] || '';
         const leadName = file?.leads.find(l => l.id === lId)?.name || 'Parked Place';
-        const details = `Title: ${form.title}\nLink: ${form.url}\nExcerpt: ${form.excerpt}\nNote: ${form.note}`;
-        list.push({ key, caseId, type: 'source', leadId: lId, leadName, preview: form.title || form.excerpt, details });
+        const details = [
+          `Kind: ${form.kind}`,
+          form.title ? `Title: ${form.title}` : '',
+          form.url ? `Link: ${form.url}` : '',
+          form.excerpt ? `Excerpt: ${form.excerpt}` : '',
+          form.note ? `Note: ${form.note}` : ''
+        ].filter(Boolean).join('\n');
+        const preview = form.title || form.excerpt || `[${form.kind} selected]`;
+        list.push({ key, caseId, type: 'source', leadId: lId, leadName, preview, details });
       }
     }
 
     if (responseComposerKey && isResponseFormNonEmpty(responseForm)) {
       const parts = responseComposerKey.split(':');
       const caseId = parts[0];
-      const lId = parts[2] || '';
-      const leadName = file?.leads.find(l => l.id === lId)?.name || (file?.enquiry?.leadId === lId ? file.leads.find(l => l.id === file.enquiry?.leadId)?.name : '') || 'Current Enquiry';
-      const details = `Respondent: ${responseForm.respondent}\nDate: ${responseForm.receivedAt}\nPassage: ${responseForm.passage}\nOutcome: ${responseForm.outcomeBranch}\nWhat Changes: ${responseForm.whatChanges}\nUnresolved: ${responseForm.unresolved}`;
-      list.push({ key: responseComposerKey, caseId, type: 'response', leadId: lId, leadName, preview: responseForm.respondent || responseForm.passage, details });
+      const enquirySnap = getEnquiryIdentity(file?.enquiry);
+      const lId = enquirySnap?.leadId || file?.enquiry?.leadId || '';
+      const leadName = file?.leads.find(l => l.id === lId)?.name || 'Current Enquiry';
+      const detailsLines = [
+        `Respondent: ${responseForm.respondent || '(not set)'}`,
+        `Date: ${responseForm.receivedAt}`,
+        `Passage/Absence: ${responseForm.passage || '(not set)'}`,
+        `Outcome Branch: ${responseForm.outcomeBranch}`,
+        `Sourced Handles: ${responseForm.sourceIds?.length ? responseForm.sourceIds.join(', ') : 'None'}`,
+        responseForm.summary ? `Summary: ${responseForm.summary}` : '',
+        responseForm.whatChanges ? `What Changes: ${responseForm.whatChanges}` : '',
+        responseForm.unresolved ? `Unresolved: ${responseForm.unresolved}` : '',
+        responseForm.revisedActionText ? `Revised Action Text: ${responseForm.revisedActionText}` : '',
+      ].filter(Boolean);
+      if (enquirySnap) {
+        detailsLines.push(
+          `--- Original Enquiry Snapshot ---`,
+          `Question: ${enquirySnap.question}`,
+          enquirySnap.recordTarget ? `Record Target: ${enquirySnap.recordTarget}` : '',
+          `Confirming Branch: ${enquirySnap.confirming}`,
+          `Conflicting Branch: ${enquirySnap.conflicting}`,
+          `Unavailable Branch: ${enquirySnap.unavailable}`,
+          enquirySnap.sourceIds?.length ? `Enquiry Sources: ${enquirySnap.sourceIds.join(', ')}` : ''
+        );
+      }
+      const details = detailsLines.filter(Boolean).join('\n');
+      const preview = responseForm.respondent || responseForm.passage || `[${responseForm.outcomeBranch} branch selected, date: ${responseForm.receivedAt}]`;
+      list.push({ key: responseComposerKey, caseId, type: 'response', leadId: lId, leadName, preview, details });
     }
-    for (const [key, form] of responseDraftsRef.current.entries()) {
-      if (key !== responseComposerKey && isResponseFormNonEmpty(form)) {
+    for (const [key, entry] of responseDraftsRef.current.entries()) {
+      if (key !== responseComposerKey && isResponseFormNonEmpty(entry.form)) {
         const parts = key.split(':');
         const caseId = parts[0];
-        const lId = parts[2] || '';
+        const form = entry.form;
+        const enquirySnap = entry.enquirySnapshot;
+        const lId = enquirySnap?.leadId || '';
         const leadName = file?.leads.find(l => l.id === lId)?.name || 'Parked Enquiry';
-        const details = `Respondent: ${form.respondent}\nDate: ${form.receivedAt}\nPassage: ${form.passage}\nOutcome: ${form.outcomeBranch}\nWhat Changes: ${form.whatChanges}\nUnresolved: ${form.unresolved}`;
-        list.push({ key, caseId, type: 'response', leadId: lId, leadName, preview: form.respondent || form.passage, details });
+        const detailsLines = [
+          `Respondent: ${form.respondent || '(not set)'}`,
+          `Date: ${form.receivedAt}`,
+          `Passage/Absence: ${form.passage || '(not set)'}`,
+          `Outcome Branch: ${form.outcomeBranch}`,
+          `Sourced Handles: ${form.sourceIds?.length ? form.sourceIds.join(', ') : 'None'}`,
+          form.summary ? `Summary: ${form.summary}` : '',
+          form.whatChanges ? `What Changes: ${form.whatChanges}` : '',
+          form.unresolved ? `Unresolved: ${form.unresolved}` : '',
+          form.revisedActionText ? `Revised Action Text: ${form.revisedActionText}` : '',
+        ].filter(Boolean);
+        if (enquirySnap) {
+          detailsLines.push(
+            `--- Original Enquiry Snapshot ---`,
+            `Question: ${enquirySnap.question}`,
+            enquirySnap.recordTarget ? `Record Target: ${enquirySnap.recordTarget}` : '',
+            `Confirming Branch: ${enquirySnap.confirming}`,
+            `Conflicting Branch: ${enquirySnap.conflicting}`,
+            `Unavailable Branch: ${enquirySnap.unavailable}`,
+            enquirySnap.sourceIds?.length ? `Enquiry Sources: ${enquirySnap.sourceIds.join(', ')}` : ''
+          );
+        }
+        const details = detailsLines.filter(Boolean).join('\n');
+        const preview = form.respondent || form.passage || `[${form.outcomeBranch} branch selected, date: ${form.receivedAt}]`;
+        list.push({ key, caseId, type: 'response', leadId: lId, leadName, preview, details });
       }
     }
 
@@ -252,7 +331,7 @@ export function useWorkspace(){
     sourceDraftsRef.current.clear();
     responseDraftsRef.current.clear();
     setSourceForm(defaultSourceForm);
-    setResponseForm({ ...defaultResponseForm, receivedAt: new Date().toISOString().slice(0, 10) });
+    setResponseForm({ ...defaultResponseForm, receivedAt: initialDefaultDate });
     bumpDraftVersion();
   }
 

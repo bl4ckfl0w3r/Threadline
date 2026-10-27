@@ -1,8 +1,18 @@
 import { z } from 'zod';
-import type { CaseFile, Query, Enquiry, EnquiryResponse, Lead } from './contracts';
+import type { CaseFile, Query, Enquiry, EnquiryResponse, Lead, EnquiryIdentity } from './contracts';
 
 export const clueInput = z.object({ id: z.string().min(1).max(80), label: z.string().trim().min(1).max(180), kind: z.enum(['artist','book','brand','movie','place']), provenance: z.enum(['supplied_interest','observation','uncertain']), enabled: z.boolean() });
 const date = z.string().refine(value => value === '' || (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().startsWith(value)), 'Enter a valid date.');
+
+export const enquiryIdentitySchema = z.object({
+  leadId: z.string().max(100),
+  question: z.string().max(2000),
+  recordTarget: z.string().max(2000).optional(),
+  confirming: z.string().max(1500),
+  conflicting: z.string().max(1500),
+  unavailable: z.string().max(1500),
+  sourceIds: z.array(z.string().max(100)).max(20),
+});
 
 export const enquiryResponseSchema = z.object({
   id: z.string().max(100),
@@ -54,6 +64,8 @@ export const actionSchema = z.discriminatedUnion('type', [
     type: z.literal('record_enquiry_response'),
     leadId: z.string().max(100),
     expectedQuestion: z.string().trim().max(2000).optional(),
+    expectedIdentity: enquiryIdentitySchema.optional(),
+    expectedIdentityJson: z.string().optional(),
     respondent: z.string().trim().min(1).max(200),
     receivedAt: date,
     passage: z.string().trim().min(1).max(4000),
@@ -66,6 +78,45 @@ export const actionSchema = z.discriminatedUnion('type', [
   }),
   z.object({type:z.literal('agent_step')}),z.object({type:z.literal('agent_reset')}),
 ]);
+
+export function getEnquiryIdentity(enquiry?: Enquiry): EnquiryIdentity | null {
+  if (!enquiry) return null;
+  return {
+    leadId: enquiry.leadId || '',
+    question: enquiry.question || '',
+    recordTarget: enquiry.recordTarget || '',
+    confirming: enquiry.confirming || '',
+    conflicting: enquiry.conflicting || '',
+    unavailable: enquiry.unavailable || '',
+    sourceIds: [...(enquiry.sourceIds || [])].sort(),
+  };
+}
+
+export function getEnquiryIdentityJson(enquiry?: Enquiry): string {
+  const identity = getEnquiryIdentity(enquiry);
+  return identity ? JSON.stringify(identity) : '';
+}
+
+export function matchesEnquiryIdentity(
+  enquiry: Enquiry | undefined,
+  expected: EnquiryIdentity | string | undefined
+): boolean {
+  if (!expected || !enquiry) return true;
+  const currentIdentityJson = getEnquiryIdentityJson(enquiry);
+  if (typeof expected === 'string') {
+    return currentIdentityJson === expected;
+  }
+  const expectedNormalizedJson = JSON.stringify({
+    leadId: expected.leadId || '',
+    question: expected.question || '',
+    recordTarget: expected.recordTarget || '',
+    confirming: expected.confirming || '',
+    conflicting: expected.conflicting || '',
+    unavailable: expected.unavailable || '',
+    sourceIds: [...(expected.sourceIds || [])].sort(),
+  });
+  return currentIdentityJson === expectedNormalizedJson;
+}
 
 export function blankCase(id: string): CaseFile {
   const now = new Date().toISOString();

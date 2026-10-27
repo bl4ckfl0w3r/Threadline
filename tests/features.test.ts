@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { blankCase, applyEdits, draftEnquiry, compareQueries, exportBrief, actionSchema } from '../lib/domain.ts';
+import { blankCase, applyEdits, draftEnquiry, compareQueries, exportBrief, actionSchema, getEnquiryIdentity, matchesEnquiryIdentity } from '../lib/domain.ts';
 import type { Query } from '../lib/contracts.ts';
 import { useWorkspace } from '../components/threadline/use-workspace.ts';
 
@@ -756,5 +756,139 @@ test('P2 Defect 4: Reopening lead restores LATEST archived version while preserv
   assert.equal(file.enquiry.history?.length, 2);
   assert.equal(file.enquiry.history[0].enquiry.question, 'Lead A v1 question');
   assert.equal(file.enquiry.history[1].enquiry.leadId, 'lead-B');
+});
+
+test('production hook regression: Branch-only edit with draft', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('branch-edit-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+  file.enquiry = draftEnquiry(file, leadA);
+  const initialIdentity = getEnquiryIdentity(file.enquiry)!;
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, enquiry: file.enquiry });
+    hook.current.setLeadId('lead-A');
+  });
+
+  // Type into response form
+  await run(() => {
+    hook.current.setResponseForm((prev: any) => ({ ...prev, respondent: 'Archive Officer', passage: 'Confirmed event' }));
+  });
+
+  // Branch-only edit on enquiry
+  await run(() => {
+    const updatedEnquiry = { ...hook.current.file.enquiry, confirming: 'UPDATED confirming branch text' };
+    hook.current.edit({ enquiry: updatedEnquiry });
+  });
+
+  // The response draft for initialIdentity should now be parked
+  const summaries = hook.current.getParkedDraftSummaries();
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].type, 'response');
+  assert.match(summaries[0].details, /Respondent: Archive Officer/);
+  assert.match(summaries[0].details, /Passage\/Absence: Confirmed event/);
+  assert.match(summaries[0].details, /--- Original Enquiry Snapshot ---/);
+
+  // Active response form for the updated enquiry is fresh
+  assert.equal(hook.current.responseForm.respondent, '');
+
+  // Verify server identity check rejects old identity against updated enquiry
+  assert.equal(matchesEnquiryIdentity(hook.current.file.enquiry, initialIdentity), false);
+  // Verify server identity check accepts matching new identity
+  assert.equal(matchesEnquiryIdentity(hook.current.file.enquiry, getEnquiryIdentity(hook.current.file.enquiry)!), true);
+});
+
+test('production hook regression: Selection-only parking/discard/unload', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('selection-only-test');
+  const leadA = { id: 'lead-A', name: 'Venue A', address: '123 A St', tags: [], introducedBy: 'q' };
+  file.leads = [leadA];
+  file.enquiry = draftEnquiry(file, leadA);
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, enquiry: file.enquiry });
+    hook.current.setLeadId('lead-A');
+  });
+
+  // On response form, make selection-only change: change outcomeBranch to 'conflicting'
+  await run(() => {
+    hook.current.setResponseForm((prev: any) => ({ ...prev, outcomeBranch: 'conflicting' }));
+  });
+
+  // Verify field count and dirty flag recognize selection-only change
+  assert.equal(hook.current.totalUnsavedFieldCount, 1);
+  assert.equal(hook.current.dirty, true);
+
+  // On source form, set kind to 'user_record'
+  await run(() => {
+    hook.current.setSourceForm((prev: any) => ({ ...prev, kind: 'user_record' }));
+  });
+
+  assert.equal(hook.current.totalUnsavedFieldCount, 2);
+
+  // Switch selected lead
+  await run(() => {
+    hook.current.setLeadId('other-lead');
+  });
+
+  // Summaries should include selection-only parked drafts
+  const summaries = hook.current.getParkedDraftSummaries();
+  assert.equal(summaries.length, 2);
+
+  const responseSummary = summaries.find((s: { type: string }) => s.type === 'response');
+  const sourceSummary = summaries.find((s: { type: string }) => s.type === 'source');
+
+  assert.ok(responseSummary);
+  assert.ok(sourceSummary);
+  assert.match(responseSummary!.preview, /\[conflicting branch selected/);
+  assert.match(sourceSummary!.preview, /\[user_record selected\]/);
+
+  // Discard parked drafts
+  await run(() => {
+    hook.current.discardParkedDraft(responseSummary!.key, 'response');
+    hook.current.discardParkedDraft(sourceSummary!.key, 'source');
+  });
+
+  assert.equal(hook.current.getParkedDraftSummaries().length, 0);
+  assert.equal(hook.current.totalUnsavedFieldCount, 0);
+});
+
+test('production hook regression: Query-dependent selected source fallback', async () => {
+  const { hook, run } = renderWorkspaceHook();
+  await run();
+  const file = blankCase('query-fallback-test');
+  const lead1 = { id: 'lead-1', name: 'Venue 1', address: '1 St', tags: [], introducedBy: 'q1' };
+  const lead2 = { id: 'lead-2', name: 'Venue 2', address: '2 St', tags: [], introducedBy: 'q2' };
+  file.leads = [lead1, lead2];
+
+  const source1 = { id: 'src-1', leadId: 'lead-1', title: 'Source 1', excerpt: 'E1', kind: 'user_excerpt' as const, mode: 'supplied' as const, capturedAt: '2026-10-26', note: '' };
+  const source2 = { id: 'src-2', leadId: 'lead-2', title: 'Source 2', excerpt: 'E2', kind: 'user_excerpt' as const, mode: 'supplied' as const, capturedAt: '2026-10-26', note: '' };
+  file.sources = [source1, source2];
+
+  const q1: Query = { id: 'q1', label: 'Query 1', mode: 'live', createdAt: '2026-10-26', clueIds: [], leadIds: ['lead-1'], affinities: {}, warnings: [], receiptId: 'r1', geography: { latitude: 0, longitude: 0, radius: 1000 }, category: 'all_places' };
+  const q2: Query = { id: 'q2', label: 'Query 2', mode: 'live', createdAt: '2026-10-26', clueIds: [], leadIds: ['lead-2'], affinities: {}, warnings: [], receiptId: 'r2', geography: { latitude: 0, longitude: 0, radius: 1000 }, category: 'all_places' };
+  file.queries = [q1, q2];
+
+  await run(() => {
+    hook.current.edit({ id: file.id, leads: file.leads, sources: file.sources, queries: file.queries });
+    hook.current.setQueryId('q1');
+  });
+
+  // Default selected lead for q1 is lead-1
+  assert.equal(hook.current.selected?.id, 'lead-1');
+  assert.equal(hook.current.selectedSources.length, 1);
+  assert.equal(hook.current.selectedSources[0].id, 'src-1');
+
+  // Switch active lead to lead-2
+  await run(() => {
+    hook.current.setLeadId('lead-2');
+  });
+
+  assert.equal(hook.current.selected?.id, 'lead-2');
+  assert.equal(hook.current.selectedSources.length, 1);
+  assert.equal(hook.current.selectedSources[0].id, 'src-2');
 });
 

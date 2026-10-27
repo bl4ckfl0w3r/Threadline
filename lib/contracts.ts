@@ -54,6 +54,16 @@ export type CaseFile = {
 export type Services = { qloo: boolean; model: boolean; storage: boolean; signedIn: boolean; modelName?: string };
 export type CaseSummary = Pick<CaseFile, 'id' | 'title' | 'mode' | 'updatedAt'>;
 export type CaseEdits = Partial<Pick<CaseFile, 'title' | 'question' | 'notes' | 'caseContext' | 'area' | 'latitude' | 'longitude' | 'radius' | 'startDate' | 'endDate' | 'activity' | 'category' | 'clues' | 'enquiry'>>;
+export type EnquiryIdentity = {
+  leadId: string;
+  question: string;
+  recordTarget?: string;
+  confirming: string;
+  conflicting: string;
+  unavailable: string;
+  sourceIds: string[];
+};
+
 export type ResearchAction =
   | { type: 'resolve'; clueId: string }
   | { type: 'confirm'; clueId: string; entityId: string }
@@ -64,6 +74,8 @@ export type ResearchAction =
       type: 'record_enquiry_response';
       leadId: string;
       expectedQuestion?: string;
+      expectedIdentity?: EnquiryIdentity;
+      expectedIdentityJson?: string;
       respondent: string;
       receivedAt: string;
       passage: string;

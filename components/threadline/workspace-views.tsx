@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, Check, DownloadSimple, LinkSimple, MagnifyingGlass, MapPin, PencilSimple, Plus, X } from '@phosphor-icons/react';
 import { regions, when, type WorkspaceState } from './use-workspace.ts';
 import type { CaseFile, Clue } from '../../lib/contracts.ts';
+import { getEnquiryIdentity, getEnquiryIdentityJson } from '../../lib/domain.ts';
 
 export function RecoveryBanner({w}:{w:WorkspaceState}) {
   if (!w.recoveryState) return null;
@@ -150,6 +151,8 @@ export function EnquiryView({w}:{w:WorkspaceState}) {
             type: 'record_enquiry_response',
             leadId: targetEnquiryLeadId,
             expectedQuestion: e.question,
+            expectedIdentity: getEnquiryIdentity(e) || undefined,
+            expectedIdentityJson: getEnquiryIdentityJson(e) || undefined,
             respondent: w.responseForm.respondent,
             receivedAt: w.responseForm.receivedAt,
             passage: w.responseForm.passage,
