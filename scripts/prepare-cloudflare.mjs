@@ -10,12 +10,14 @@ if (!/^[a-f0-9]{32}$/.test(profile.account_id ?? '')) throw new Error('A real Cl
 if (!/^[a-f0-9-]{36}$/.test(profile.database_id ?? '') || profile.database_id === '00000000-0000-4000-8000-000000000000') throw new Error('A real D1 database ID is required.');
 if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(profile.worker_name ?? '')) throw new Error('A valid Worker name is required.');
 if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(profile.database_name ?? '')) throw new Error('A valid D1 database name is required.');
-if (!/^https:\/\/[a-z0-9][a-z0-9-]*\.cloudflareaccess\.com$/.test(profile.access_team_domain ?? '') || !/^[a-f0-9]{64}$/.test(profile.access_aud ?? '')) throw new Error('Verified Cloudflare Access configuration is required.');
+const authMode = profile.auth_mode ?? 'browser-session';
+if (!['browser-session', 'cloudflare-access'].includes(authMode)) throw new Error('Unknown authentication mode.');
+if (authMode === 'cloudflare-access' && (!/^https:\/\/[a-z0-9][a-z0-9-]*\.cloudflareaccess\.com$/.test(profile.access_team_domain ?? '') || !/^[a-f0-9]{64}$/.test(profile.access_aud ?? ''))) throw new Error('Verified Cloudflare Access configuration is required.');
 const base = JSON.parse(await readFile('dist/server/wrangler.json', 'utf8'));
 const config = {
   ...base, name: profile.worker_name, account_id: profile.account_id,
   workers_dev: true, preview_urls: false,
-  vars: { ACCESS_TEAM_DOMAIN: profile.access_team_domain, ACCESS_AUD: profile.access_aud },
+  vars: { AUTH_MODE: authMode, ...(authMode === 'cloudflare-access' ? { ACCESS_TEAM_DOMAIN: profile.access_team_domain, ACCESS_AUD: profile.access_aud } : {}) },
   d1_databases: [{ binding: 'DB', database_name: profile.database_name, database_id: profile.database_id, migrations_dir: '../../drizzle' }],
   // Case contents and request URLs must not become automatic invocation logs.
   observability: { enabled: false },

@@ -12,7 +12,7 @@ Use Node 22.13 or later and the pnpm version pinned in `package.json`.
 4. Apply the SQL files in `drizzle/` to the local `DB` binding, in order. Use Wrangler with `--local --config dist/server/wrangler.json --persist-to .wrangler/state`.
 5. Start with `pnpm dev -- --port 5180` and open the printed local URL.
 
-The development server supports a local preview identity. Production requires Cloudflare Access: the Worker verifies the signed token's issuer, application audience and expiry before creating an app identity. Supplied user headers are discarded. Case reads and writes are scoped to that verified user. Production builds fail closed when Access is missing, including when run in local production preview.
+The development server supports a local preview identity. The deployed preview uses signed, Secure, HttpOnly browser sessions without a login screen. Cases are scoped to the session; supplied identity headers cannot choose another owner. Clearing the session cookie or moving browsers loses access to that workspace, so export important work. Sessions last 30 days and renew during active use. Production fails closed if its signing secret is missing. Cloudflare Access remains an optional alternative mode.
 
 `SOURCE_ALLOWED_HOSTS` controls which public HTTPS hosts the server may read. Source URLs outside that allowlist remain available for manual opening and excerpt attachment.
 
@@ -28,17 +28,17 @@ The colour tokens are centralised in `app/theme.css`. Interface styling is in `a
 
 ## Current limitations
 
-The model adapter requires separately configured server credentials. A successful build does not establish that model access, production authentication or a real D1 database is configured. Production deployment needs those bindings and an Access policy.
+The model adapter requires separately configured server credentials. A successful build does not establish that model access, production sessions or a real D1 database is configured. Production deployment needs those bindings and a session-signing secret (or an Access policy in that optional mode).
 
 ## Cloudflare deployment
 
-Protect this Worker and all its routes with Cloudflare Access, using an explicit allow policy. Keep version preview URLs disabled. Create a separate production D1 database; do not upload the local case database.
+Create a separate production D1 database and apply every migration in `drizzle/`; do not upload the local case database. Keep version preview URLs disabled. The default deployment mode is `browser-session`, which requires a random server-only `SESSION_SIGNING_KEY` of at least 48 characters.
 
-Store a deployment profile in ignored `private/cloudflare.json` with `worker_name`, `account_id`, `database_name`, `database_id`, `access_team_domain` (the HTTPS team origin), and `access_aud` (the application's audience tag). These are deployment identifiers; provider keys belong in Worker secrets, never in this file or `vars`.
+Store a deployment profile in ignored `private/cloudflare.json` with `worker_name`, `account_id`, `database_name`, `database_id` and `auth_mode` (`browser-session`). These are deployment identifiers; signing and provider keys belong in Worker secrets, never in this file or `vars`. Optional `cloudflare-access` mode additionally needs `access_team_domain`, `access_aud` and an Access allow policy.
 
-After `pnpm build`, run `node scripts/prepare-cloudflare.mjs private/cloudflare.json`. This creates an ignored production configuration without changing the local placeholder binding. Use `dist/server/wrangler.production.json` for remote D1 migrations, secret configuration and deployment. Verify the Access policy, unauthenticated rejection, authenticated ownership isolation, response headers and browser operation after deployment. Authorising Cloudflare CLI access is separate from signing in to its website.
+After `pnpm build`, run `node scripts/prepare-cloudflare.mjs private/cloudflare.json`. This creates an ignored production configuration without changing the local placeholder binding. Use `dist/server/wrangler.production.json` for remote D1 migrations, secret configuration and deployment. Verify session creation, tampered-cookie rejection, ownership isolation, usage limits, response headers and browser operation after deployment. Authorising Cloudflare CLI access is separate from signing in to its website.
 
-HTML metadata, Worker responses and static-asset headers request `noindex`. `robots.txt` allows crawlers to see these directives rather than hiding them behind a conflicting crawl prohibition. Search exclusion is not access control; Cloudflare Access protects the private preview and the Worker independently verifies identity.
+HTML metadata, Worker responses and static-asset headers request `noindex`. `robots.txt` allows crawlers to see these directives rather than hiding them behind a conflicting crawl prohibition. Search exclusion is not access control. Anyone with the link can open the preview, while case access requires the owning browser session. Server limits cap session/case creation, API requests and provider attempts; the network address used for request limits is stored only as a keyed hash. Daily provider limits are 200 attempts per workspace and 1,000 across the preview, including a separate 100-attempt model cap. These limits also count failed attempts and may conservatively reserve capacity before an attempted call fails.
 
 The recorded demo data, local case database and internal handoff are intentionally absent from a clone. `/api/demo` returns an explicit unavailable response when a compatible recording is not installed. Do not add fabricated provider results to make a clean clone look live. The fallback starter is only a blank fictional example.
 

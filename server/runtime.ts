@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { UsageLimitError } from './usage-limits';
 
 export class AppError extends Error {
   constructor(message: string, public status = 400, public code = 'invalid_request') { super(message); }
@@ -21,6 +22,7 @@ export async function readBody(request: Request) {
 }
 export function json(value: unknown, status=200) { return Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}); }
 export function failure(error:unknown) {
+  if(error instanceof UsageLimitError)return json({error:error.message,code:error.code},error.status);
   if(error instanceof AppError)return json({error:error.message,code:error.code},error.status);
   if(error instanceof Error && error.name==='ZodError')return json({error:'Please check the fields and try again.',code:'validation_failed'},400);
   console.error('Application request failed:',error instanceof Error?error.name:'unknown');

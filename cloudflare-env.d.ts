@@ -4,5 +4,7 @@ declare namespace Cloudflare {
     BUCKET?: R2Bucket;
     ACCESS_TEAM_DOMAIN?: string;
     ACCESS_AUD?: string;
+    AUTH_MODE?: 'browser-session' | 'cloudflare-access';
+    SESSION_SIGNING_KEY?: string;
   }
 }

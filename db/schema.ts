@@ -1,5 +1,10 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
+export const usageBuckets = sqliteTable('usage_buckets', {
+  bucket: text('bucket').primaryKey(), used: integer('used').notNull().default(0),
+  expiresAt: integer('expires_at').notNull(),
+}, t => [index('usage_buckets_expiry').on(t.expiresAt)]);
+
 export const cases = sqliteTable('cases', {
   id: text('id').primaryKey(), owner: text('owner').notNull(),
   title: text('title').notNull(), mode: text('mode').notNull(),

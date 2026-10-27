@@ -1,5 +1,6 @@
 import type { CaseFile } from '@/lib/contracts';
 import { database, AppError } from './runtime';
+import { reserveBudget } from './usage-limits';
 
 export async function listCases(owner:string) {
   const result=await database().prepare('SELECT id,title,mode,updated_at AS updatedAt FROM cases WHERE owner=? ORDER BY updated_at DESC LIMIT 40').bind(owner).all();return result.results;
@@ -26,6 +27,9 @@ export async function saveCase(owner:string,file:CaseFile,token:string) {
 }
 // Attempt and result are distinct immutable rows, including failed provider attempts.
 export async function beginReceipt(owner:string,caseId:string,provider:string,request:unknown) {
+  await reserveBudget(database(), `research-owner:${owner}`, 200, 86400);
+  await reserveBudget(database(), 'research-global', 1000, 86400);
+  if(provider==='model')await reserveBudget(database(), 'model-global', 100, 86400);
   const count=await database().prepare("SELECT count(*) AS total FROM receipts WHERE owner=? AND phase='attempt' AND created_at>?").bind(owner,new Date(Date.now()-86400000).toISOString()).first<{total:number}>();
   if((count?.total||0)>=200)throw new AppError('The workspace has used its daily research allowance.',429,'research_limit');
   const id=crypto.randomUUID();await database().prepare('INSERT INTO receipts (id,case_id,owner,provider,phase,request,created_at) VALUES (?,?,?,?,?,?,?)').bind(id,caseId,owner,provider,'attempt',JSON.stringify(request),new Date().toISOString()).run();return id;
