@@ -1,0 +1,57 @@
+name: Deploy production
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: threadline-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      THREADLINE_WORKER_NAME: ${{ vars.THREADLINE_WORKER_NAME }}
+      THREADLINE_DATABASE_NAME: ${{ vars.THREADLINE_DATABASE_NAME }}
+      THREADLINE_DATABASE_ID: ${{ vars.THREADLINE_DATABASE_ID }}
+      THREADLINE_PRODUCTION_URL: ${{ vars.THREADLINE_PRODUCTION_URL }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '26.2.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate and build exact revision
+        run: pnpm run build:production
+      - name: Skip superseded release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$latest" = "$GITHUB_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo "Release skipped: $GITHUB_SHA was superseded by $latest." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Migrate, deploy and verify
+        id: release
+        if: steps.latest.outputs.current == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm run deploy:production
+      - name: Release summary
+        if: always()
+        env:
+          RESULT: ${{ steps.release.outcome }}
+        run: |
+          printf 'Commit: `%s`\n\nDeployment and verification: **%s**\n\nSite: %s\n' "$GITHUB_SHA" "$RESULT" "$THREADLINE_PRODUCTION_URL" >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { releaseContext } from './release-context.mjs';
 
 // Run only after the build/test command succeeds. No developer-only files are
 // needed by this command; Worker secrets stay in Cloudflare.
@@ -7,11 +8,9 @@ const run = (program, args) => execFileSync(program, args, { stdio: 'inherit' })
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const changes = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim();
 if (changes) throw new Error('Commit all authored changes before deploying.');
-const branch = process.env.WORKERS_CI_BRANCH || execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim();
-if (branch !== 'main') throw new Error('Only main can deploy production.');
+releaseContext(process.env, execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(), head);
 const productionUrl = process.env.THREADLINE_PRODUCTION_URL;
 if (!productionUrl || new URL(productionUrl).protocol !== 'https:') throw new Error('Set an HTTPS THREADLINE_PRODUCTION_URL before deployment.');
-if (process.env.WORKERS_CI_BRANCH && process.env.WORKERS_CI_BRANCH !== 'main') throw new Error('Only main can deploy production.');
 const config = 'dist/server/wrangler.production.json';
 const prepared = JSON.parse(readFileSync(config, 'utf8'));
 if (prepared.vars?.RELEASE_SHA !== head) throw new Error('Prepared configuration is for a different revision. Rebuild first.');

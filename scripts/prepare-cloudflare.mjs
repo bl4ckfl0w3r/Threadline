@@ -14,7 +14,7 @@ const profile = profilePath ? JSON.parse(await readFile(resolve(profilePath), 'u
 };
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('A committed Git revision is required.');
-if (process.env.WORKERS_CI_COMMIT_SHA && process.env.WORKERS_CI_COMMIT_SHA !== revision) throw new Error('Build checkout does not match the triggering commit.');
+if (process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_SHA !== revision) throw new Error('Build checkout does not match the GitHub triggering commit.');
 if (!/^[a-f0-9]{32}$/.test(profile.account_id ?? '')) throw new Error('A real Cloudflare account ID is required.');
 if (!/^[a-f0-9-]{36}$/.test(profile.database_id ?? '') || profile.database_id === '00000000-0000-4000-8000-000000000000') throw new Error('A real D1 database ID is required.');
 if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(profile.worker_name ?? '')) throw new Error('A valid Worker name is required.');

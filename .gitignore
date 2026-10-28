@@ -82,3 +82,7 @@ AGENTS.md
 
 # Local design directions, screenshots and reviews
 /.taste-skill/
+
+# Local Stitch CLI configuration
+.stitch.json
+.stitch/
