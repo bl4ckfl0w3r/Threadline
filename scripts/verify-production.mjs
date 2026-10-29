@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildDemoV2 } from '../lib/demo-v2.ts';
 
 const [origin, revision] = process.argv.slice(2);
 assert.ok(origin && new URL(origin).protocol === 'https:', 'An HTTPS production URL is required.');
@@ -24,6 +25,7 @@ assert.equal(cases.status, 200, 'Case storage failed.');
 assert.deepEqual((await cases.json()).cases, [], 'Fresh session unexpectedly sees existing cases.');
 const anonymous = await fetch(new URL('/api/cases', origin));
 assert.equal(anonymous.status, 401, 'Unauthenticated case access was not rejected.');
-const demo = await fetch(new URL('/api/demo', origin), { headers });
-assert.equal(demo.status, 200, 'Curated demo data is unavailable.');
+const demo = await fetch(new URL('/api/demo?version=2', origin), { headers });
+assert.equal(demo.status, 200, 'CH01 demo data is unavailable; install the approved recording before release.');
+assert.ok(buildDemoV2((await demo.json()).demo), 'The live demo is not a valid CH01 V2 recording.');
 console.log(`Verified deployed Git revision ${revision}; noindex, sessions, case isolation and demo passed. No provider calls made.`);

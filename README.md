@@ -83,7 +83,9 @@ Task state remains under ignored private/loop-tasks/. No recurring task dispatch
 
 ## Backend replay and comparison contracts
 
-The current demo renderer keeps using `GET /api/demo` (V1). The validated CH01 backend is available through `GET /api/demo?version=2`; a frontend renderer must opt into this format explicitly. Both routes return `503` with `code: demo_unavailable` when their recording is unavailable. Editable workspace examples continue using the separate `curated-fictional-example` CaseFile row; CH01 uses `ch01-demo`.
+The demo renderer uses `GET /api/demo?version=2` and validates the CH01 document before rendering. Unversioned `GET /api/demo` retains V1 compatibility. Both routes return `503` with `code: demo_unavailable` when their recording is unavailable. Editable workspace examples continue using the separate `curated-fictional-example` CaseFile row; CH01 uses `ch01-demo`.
+
+Before merging a release that introduces this renderer, an operator must install the approved `ch01-demo` recording in the target environment. Production data installation is a separate, explicitly authorized operation; ordinary releases never seed it. The production smoke check validates the same V2 recording the UI consumes and fails if it is missing or invalid.
 
 Prepare the CH01 recording locally with `node scripts/prepare-ch01-demo.mjs STUDY_FOLDER`. The folder is an operator-supplied frozen study, not part of the repository. The script reads public intake, actual Qloo receipts and only records inspected in the recorded arms; it does not read the private answer key. Its output is ignored `data/recorded/ch01-demo.json`. Generate ignored seed SQL with `node scripts/prepare-demo-seed.mjs data/recorded/ch01-demo.json private/ch01-demo-seed.sql`; install only into an explicitly selected local database. Inspect existing local tables before applying missing additive migrations. Never reset an existing case database or run this seed during ordinary releases.
 

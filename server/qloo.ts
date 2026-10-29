@@ -1,7 +1,7 @@
 import type { CaseFile, Entity, Lead, Query, QueryScope } from '@/lib/contracts';
 import { AppError, bindings } from './runtime';
 import { beginReceipt, endReceipt, reserveRequests, releaseRequests } from './store';
-import { controlFor } from '../lib/domain';
+import { controlFor, discoveryScope } from '../lib/domain';
 import type { ResearchReservation } from './usage-limits';
 
 const incompleteControlWarning='Comparison incomplete: the control request failed. Retry only the control for this query.';
@@ -78,11 +78,7 @@ async function discoverOne(owner:string,file:CaseFile,clueIds:string[],scope:Que
 }
 export function safeWebsite(value?:string) {if(!value)return undefined;try{const url=new URL(value);if(!['https:','http:'].includes(url.protocol))return undefined;return url.href;}catch{return undefined;}}
 
-export function discoveryScope(file:CaseFile):QueryScope {
-  return {endpoint:'/v2/insights',filterType:'urn:entity:place',category:file.category,
-    tags:file.category==='book_store'?['urn:tag:category:place:book_store']:[],
-    geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},take:20};
-}
+export { discoveryScope };
 export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
   if(!bindings().QLOO_API_KEY)throw new AppError('Qloo is not configured on the server.',503,'qloo_unavailable');
   if(new Set(clueIds).size!==clueIds.length || clueIds.some(id=>!file.clues.some(c=>c.id===id&&c.enabled&&c.entity)))throw new AppError('Confirm and enable each selected cultural reference once.');

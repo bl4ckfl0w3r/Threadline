@@ -1,5 +1,5 @@
 'use client';
-import { ArrowRight, ArrowUpRight, Check, ClipboardText, Compass, DownloadSimple, FileText, FolderOpen, GitBranch, MagnifyingGlass, Plus, Quotes, Stop, X } from '@phosphor-icons/react';
+import { ArrowRight, ArrowUpRight, Check, ClipboardText, Compass, DownloadSimple, FileText, FolderOpen, GitBranch, MagnifyingGlass, Plus, Quotes, Stop, X } from '@/components/threadline/icons';
 import { Brand, ThreadMark } from '@/components/threadline/brand';
 import { useWorkspace } from '@/components/threadline/use-workspace';
 import { CaseView, LeadsView, SourcesView, EnquiryView } from '@/components/threadline/workspace-views';

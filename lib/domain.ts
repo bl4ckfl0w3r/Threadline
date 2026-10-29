@@ -307,6 +307,12 @@ export function sameQueryScope(a: QueryScope, b: QueryScope): boolean {
   });
   return canonical(a) === canonical(b);
 }
+// Shared by provider requests and the UI's saved-input matching.
+export function discoveryScope(file:CaseFile):QueryScope {
+  return {endpoint:'/v2/insights',filterType:'urn:entity:place',category:file.category,
+    tags:file.category==='book_store'?['urn:tag:category:place:book_store']:[],
+    geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},take:20};
+}
 export function controlFor(file: CaseFile, query: Query, options: { forReuse?: boolean } = {}): Query | undefined {
   if (!query.clueIds.length) return undefined;
   return [...file.queries].reverse().find(q => {
@@ -340,7 +346,7 @@ export function whatTheReferencesChanged(control: Query, seeded: Query): Referen
 }
 
 // Accept slim live rows and legacy full rows; skipped or duplicate rows never compress positions.
-function providerRanks(query:Query):Map<string,number> {
+export function providerRanks(query:Query):Map<string,number> {
   const ranks=new Map<string,number>();
   for(const [index,row] of (query.rawRows||[]).entries()){
     if(!row || typeof row!=='object')continue;
