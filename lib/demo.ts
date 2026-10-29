@@ -39,3 +39,6 @@ export function buildDemo(file: CaseFile): DemoData | null {
   }
   return null;
 }
+
+export { buildDemoV2 } from './demo-v2.ts';
+export type { DemoDataV2 } from './contracts.ts';

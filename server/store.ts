@@ -1,6 +1,9 @@
 import type { CaseFile } from '@/lib/contracts';
 import { database, AppError } from './runtime';
-import { reserveBudget } from './usage-limits';
+import { reserveResearchBudget, releaseResearchBudget, type ResearchReservation } from './usage-limits';
+export { caseUsage } from './usage-limits';
+export async function reserveRequests(owner:string,provider:string,count:number) { return reserveResearchBudget(database(),owner,provider,count); }
+export async function releaseRequests(reservation:ResearchReservation) { return releaseResearchBudget(database(),reservation); }
 
 export async function listCases(owner:string) {
   const result=await database().prepare('SELECT id,title,mode,updated_at AS updatedAt FROM cases WHERE owner=? ORDER BY updated_at DESC LIMIT 40').bind(owner).all();return result.results;
@@ -26,13 +29,24 @@ export async function saveCase(owner:string,file:CaseFile,token:string) {
   if(result.meta.changes!==1)throw new AppError('The case changed during this action. Reload it to continue.',409,'case_conflict');return next;
 }
 // Attempt and result are distinct immutable rows, including failed provider attempts.
-export async function beginReceipt(owner:string,caseId:string,provider:string,request:unknown) {
-  await reserveBudget(database(), `research-owner:${owner}`, 200, 86400);
-  await reserveBudget(database(), 'research-global', 1000, 86400);
-  if(provider==='model')await reserveBudget(database(), 'model-global', 100, 86400);
-  const count=await database().prepare("SELECT count(*) AS total FROM receipts WHERE owner=? AND phase='attempt' AND created_at>?").bind(owner,new Date(Date.now()-86400000).toISOString()).first<{total:number}>();
-  if((count?.total||0)>=200)throw new AppError('The workspace has used its daily research allowance.',429,'research_limit');
-  const id=crypto.randomUUID();await database().prepare('INSERT INTO receipts (id,case_id,owner,provider,phase,request,created_at) VALUES (?,?,?,?,?,?,?)').bind(id,caseId,owner,provider,'attempt',JSON.stringify(request),new Date().toISOString()).run();return id;
+export async function beginReceipt(owner:string,caseId:string,provider:string,request:unknown,reservation?:ResearchReservation) {
+  const budget=reservation || await reserveRequests(owner,provider,1);
+  if(budget.remaining<1)throw new Error('The request reservation is exhausted.');
+  const id=crypto.randomUUID();
+  try {
+    const now=Date.now();
+    const results=await database().batch([
+      database().prepare(`INSERT INTO receipts (id,case_id,owner,provider,phase,request,created_at)
+        SELECT ?,?,?,?,?,?,? WHERE EXISTS (
+          SELECT 1 FROM usage_buckets WHERE bucket=? AND used>0 AND expires_at>?
+        )`).bind(id,caseId,owner,provider,'attempt',JSON.stringify(request),new Date(now).toISOString(),budget.pendingBucket,now),
+      database().prepare(`UPDATE usage_buckets SET used=used-1 WHERE bucket=? AND used>0
+        AND EXISTS (SELECT 1 FROM receipts WHERE id=? AND owner=? AND case_id=? AND phase='attempt')`)
+        .bind(budget.pendingBucket,id,owner,caseId),
+    ]);
+    if(results[0].meta.changes!==1)throw new AppError('The request allowance reservation expired. No provider request was made. Try the action again.',429,'research_reservation_expired');
+    budget.remaining--;return id;
+  } catch(error) { if(!reservation)await releaseRequests(budget);throw error; }
 }
 export async function endReceipt(owner:string,caseId:string,provider:string,id:string,status:number,response:unknown) {
   await database().prepare('INSERT INTO receipts (id,case_id,owner,provider,phase,request,response,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(id+':result',caseId,owner,provider,'result',JSON.stringify({attempt:id}),JSON.stringify(response),status,new Date().toISOString()).run();
