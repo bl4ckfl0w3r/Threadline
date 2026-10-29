@@ -307,11 +307,17 @@ export function sameQueryScope(a: QueryScope, b: QueryScope): boolean {
   });
   return canonical(a) === canonical(b);
 }
-export function controlFor(file: CaseFile, query: Query): Query | undefined {
-  if (!query.scope) return undefined;
-  return [...file.queries].reverse().find(q => q.id !== query.id && !q.clueIds.length &&
-    q.mode === query.mode && q.scope && sameQueryScope(query.scope!,q.scope) &&
-    (query.controlQueryId ? query.controlQueryId === q.id : q.createdAt.slice(0,10) === query.createdAt.slice(0,10)));
+export function controlFor(file: CaseFile, query: Query, options: { forReuse?: boolean } = {}): Query | undefined {
+  if (!query.clueIds.length) return undefined;
+  return [...file.queries].reverse().find(q => {
+    if(q.id===query.id || q.clueIds.length || q.mode!==query.mode)return false;
+    if(query.controlQueryId && query.controlQueryId!==q.id)return false;
+    if(query.scope && q.scope)return sameQueryScope(query.scope,q.scope) &&
+      (!!query.controlQueryId || q.createdAt.slice(0,10)===query.createdAt.slice(0,10));
+    // Historical display may compare legacy category/geography with the warning
+    // returned by whatTheReferencesChanged. Missing scope never permits live reuse.
+    return !options.forReuse && isScopeCompatible(query,q);
+  });
 }
 export function whatTheReferencesChanged(control: Query, seeded: Query): ReferenceChange {
   const result: ReferenceChange = {

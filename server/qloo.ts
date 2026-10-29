@@ -85,7 +85,7 @@ export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
   if(new Set(clueIds).size!==clueIds.length || clueIds.some(id=>!file.clues.some(c=>c.id===id&&c.enabled&&c.entity)))throw new AppError('Confirm and enable each selected cultural reference once.');
   const scope=discoveryScope(file);
   const probe={id:'',scope,createdAt:new Date().toISOString(),mode:'live',clueIds} as Query;
-  const existing=clueIds.length?controlFor(file,probe):undefined;
+  const existing=clueIds.length?controlFor(file,probe,{forReuse:true}):undefined;
   const reservation=await reserveRequests(owner,'qloo',clueIds.length&&!existing?2:1);
   try {
     const outcome=await discoverOne(owner,file,clueIds,scope,reservation);
@@ -109,7 +109,7 @@ export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
 export async function runControl(owner:string,file:CaseFile,queryId:string) {
   const query=file.queries.find(q=>q.id===queryId);
   if(!query?.scope || !query.clueIds.length || query.mode!=='live')throw new AppError('Choose a live seeded query with its full scope recorded.');
-  const existing=controlFor(file,query);
+  const existing=controlFor(file,query,{forReuse:true});
   if(existing){query.controlQueryId=existing.id;query.warnings=query.warnings.filter(w=>w!==incompleteControlWarning);return {title:'Control paired',detail:'Reused the identical-scope control captured on the same UTC day.',receipt:existing.receiptId};}
   if(!bindings().QLOO_API_KEY)throw new AppError('Qloo is not configured on the server.',503,'qloo_unavailable');
   const reservation=await reserveRequests(owner,'qloo',1);

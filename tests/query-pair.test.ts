@@ -48,4 +48,11 @@ test('seeded failure keeps a previously successful control and returns unused re
 test('insufficient paired allowance makes no provider calls or case mutations',async()=>{
  reset();allow=false;responses([]);const f=file();await assert.rejects(discover('owner',f,['film']),/allowance/);assert.equal(attempts.length,0);assert.equal(f.queries.length,0);
 });
+test('a legacy control can be displayed but is never reused to skip a newly scoped provider control',async()=>{
+ reset();responses([200]);const f=file();await discover('owner',f,[]);
+ delete f.queries[0].scope;
+ reset();responses([200,200]);await discover('owner',f,['film']);
+ assert.deepEqual(reservations,[2]);assert.equal(attempts.length,2);
+ assert.notEqual(f.queries.at(-1)!.controlQueryId,f.queries[0].id);
+});
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as any).__threadlineQlooTest;});

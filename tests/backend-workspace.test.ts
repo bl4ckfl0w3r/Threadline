@@ -31,7 +31,19 @@ test('controls reuse only identical full scopes captured on the same UTC day; ex
  control.scope!.candidateEntityIds=['c'];assert.equal(controlFor(file,seeded),undefined);control.scope!.candidateEntityIds=['a','b'];
  control.createdAt='2026-10-28T12:00:00Z';assert.equal(controlFor(file,seeded),undefined);
  seeded.controlQueryId=control.id;assert.equal(controlFor(file,seeded)?.id,control.id);
- delete control.scope;assert.equal(controlFor(file,seeded),undefined);
+ delete control.scope;assert.equal(controlFor(file,seeded)?.id,control.id);
+ assert.equal(controlFor(file,seeded,{forReuse:true}),undefined);
+});
+test('legacy controls remain available for historical comparison with warnings, never for live reuse',()=>{
+ const file=blankCase('case'),control=query('control',['a']),seeded=query('seeded',['a'],['film']);
+ delete control.scope;delete seeded.scope;control.mode=seeded.mode='recorded';
+ control.createdAt='2026-09-01T00:00:00Z';file.queries=[control,seeded];
+ assert.equal(controlFor(file,seeded)?.id,'control');
+ assert.equal(whatTheReferencesChanged(control,seeded).compatible,true);
+ assert.match(whatTheReferencesChanged(control,seeded).warnings[0],/not recorded/);
+ assert.equal(controlFor(file,seeded,{forReuse:true}),undefined);
+ control.geography={...control.geography,radius:100};assert.equal(controlFor(file,seeded),undefined);
+ control.geography=seeded.geography;control.mode='live';assert.equal(controlFor(file,seeded),undefined);
 });
 test('reference relation survives edits and explanatory check text never changes response identity',()=>{
  const file=blankCase('case');file.leads=[{id:'venue',name:'Venue',address:'Here',tags:[],introducedBy:'query'}];
