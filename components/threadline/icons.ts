@@ -1,0 +1,21 @@
+// One import per icon: the package root makes the dev server load all ~3,000 icons (6.7 MB) before the page can start.
+export { ArrowClockwise } from '@phosphor-icons/react/ArrowClockwise';
+export { ArrowLeft } from '@phosphor-icons/react/ArrowLeft';
+export { ArrowRight } from '@phosphor-icons/react/ArrowRight';
+export { ArrowUpRight } from '@phosphor-icons/react/ArrowUpRight';
+export { Check } from '@phosphor-icons/react/Check';
+export { ClipboardText } from '@phosphor-icons/react/ClipboardText';
+export { Compass } from '@phosphor-icons/react/Compass';
+export { DownloadSimple } from '@phosphor-icons/react/DownloadSimple';
+export { FileText } from '@phosphor-icons/react/FileText';
+export { FolderOpen } from '@phosphor-icons/react/FolderOpen';
+export { GitBranch } from '@phosphor-icons/react/GitBranch';
+export { LinkSimple } from '@phosphor-icons/react/LinkSimple';
+export { MagnifyingGlass } from '@phosphor-icons/react/MagnifyingGlass';
+export { MapPin } from '@phosphor-icons/react/MapPin';
+export { Minus } from '@phosphor-icons/react/Minus';
+export { PencilSimple } from '@phosphor-icons/react/PencilSimple';
+export { Plus } from '@phosphor-icons/react/Plus';
+export { Quotes } from '@phosphor-icons/react/Quotes';
+export { Stop } from '@phosphor-icons/react/Stop';
+export { X } from '@phosphor-icons/react/X';

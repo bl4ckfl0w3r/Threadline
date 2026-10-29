@@ -1,12 +1,10 @@
-import { exampleCase } from '@/server/example';
-import { buildDemo } from '@/lib/demo';
-import { json, failure } from '@/server/runtime';
+import { database,json,failure } from '@/server/runtime';
+import { demoResponse } from '@/server/demo-data';
 
-// Only the curated fictional example is exposed here, never an owner's saved case.
-export async function GET() {
+// Version selection keeps the existing frontend working during the CH01 rollout.
+export async function GET(request:Request) {
   try {
-    const demo = buildDemo(await exampleCase('demo'));
-    if (!demo) return json({ error: 'The recorded demonstration is not installed on this server.' }, 503);
-    return json({ demo });
-  } catch (error) { return failure(error); }
+    const result=await demoResponse(database(),new URL(request.url).searchParams.get('version'));
+    return json(result.body,result.status);
+  } catch(error){return failure(error);}
 }

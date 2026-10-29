@@ -1,11 +1,15 @@
-import type { CaseFile, Entity, Lead, Query } from '@/lib/contracts';
+import type { CaseFile, Entity, Lead, Query, QueryScope } from '@/lib/contracts';
 import { AppError, bindings } from './runtime';
-import { beginReceipt, endReceipt } from './store';
+import { beginReceipt, endReceipt, reserveRequests, releaseRequests } from './store';
+import { controlFor, discoveryScope } from '../lib/domain';
+import type { ResearchReservation } from './usage-limits';
+
+const incompleteControlWarning='Comparison incomplete: the control request failed. Retry only the control for this query.';
 
 type Row={entity_id?:string;name?:string;properties?:{address?:string;website?:string};location?:{lat?:number;lon?:number};tags?:{name?:string}[];query?:{affinity?:number};affinity?:number};
-async function request(owner:string,file:CaseFile,path:string,params:Record<string,string>) {
+async function request(owner:string,file:CaseFile,path:string,params:Record<string,string>,reservation?:ResearchReservation) {
   const key=bindings().QLOO_API_KEY;if(!key)throw new AppError('Qloo is not configured on the server.',503,'qloo_unavailable');
-  const receipt=await beginReceipt(owner,file.id,'qloo',{path,params});
+  const receipt=await beginReceipt(owner,file.id,'qloo',{path,params},reservation);
   let status=0;let body:unknown;let recorded=false;
   try {
     const response=await fetch(`https://hackathon.api.qloo.com${path}?${new URLSearchParams(params)}`,{headers:{'X-Api-Key':key,Accept:'application/json'},signal:AbortSignal.timeout(25000)});
@@ -35,14 +39,15 @@ export async function resolveClue(owner:string,file:CaseFile,clueId:string) {
   clue.matches=matches;delete clue.entity;
   return {receipt,title:`Resolved “${clue.label}”`,detail:matches.length ? `${matches.length} possible identities. Confirm the intended entity before research.`:'No matching identity was returned. Try a more specific name.'};
 }
-export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
+async function discoverOne(owner:string,file:CaseFile,clueIds:string[],scope:QueryScope,reservation:ResearchReservation) {
   if(new Set(clueIds).size!==clueIds.length)throw new AppError('Choose each clue once.');
   const clues=clueIds.map(id=>file.clues.find(c=>c.id===id));
   if(clues.some(c=>!c || !c.enabled || !c.entity))throw new AppError('Confirm and enable the selected cultural references first.');
-  const params:Record<string,string>={'filter.type':'urn:entity:place',take:'20','filter.location':`POINT(${file.longitude} ${file.latitude})`,'filter.location.radius':String(file.radius)};
-  if(file.category==='book_store')params['filter.tags']='urn:tag:category:place:book_store';
+  const params:Record<string,string>={'filter.type':scope.filterType,take:String(scope.take),'filter.location':`POINT(${scope.geography.longitude} ${scope.geography.latitude})`,'filter.location.radius':String(scope.geography.radius)};
+  if(scope.tags.length)params['filter.tags']=scope.tags.join(',');
+  if(scope.candidateEntityIds)params['filter.results.entities']=scope.candidateEntityIds.join(',');
   if(clues.length)params['signal.interests.entities']=clues.map(c=>c!.entity!.id).join(',');
-  const {result,receipt}=await request(owner,file,'/v2/insights',params);
+  const {result,receipt}=await request(owner,file,scope.endpoint,params,reservation);
   const rows=!Array.isArray(result.results)?result.results?.entities:undefined;
   if(!Array.isArray(rows))throw new AppError(`Qloo Insights returned an unexpected response. Receipt: ${receipt}`,502);
   const id=crypto.randomUUID();const warnings=[result.warnings,result.warning].filter(Boolean).map(w=>typeof w==='string'?w:JSON.stringify(w));
@@ -54,8 +59,8 @@ export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
     const affinity=row.query?.affinity ?? row.affinity;if(typeof affinity==='number')affinities[lead.id]=affinity;
   }
   const inputSnapshot = {
-    category: file.category,
-    geography: { latitude: file.latitude, longitude: file.longitude, radius: file.radius },
+    category: scope.category,
+    geography: {...scope.geography},
     clues: clues.map(c => ({
       id: c!.id,
       label: c!.label,
@@ -64,8 +69,53 @@ export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
       provenance: c!.provenance
     }))
   };
-  const query:Query={id,label:clues.length?clues.map(c=>c!.entity!.name).join(' + '):'Area & activity only',mode:'live',createdAt:new Date().toISOString(),clueIds,leadIds,affinities,warnings,receiptId:receipt,geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},category:file.category,inputSnapshot,rawRows:rows.map((r,idx)=>({...r,ordinal:idx}))};
+  // Full provider rows are already preserved in the immutable result receipt.
+  // Keep the legacy field name and original positions for both existing clients.
+  const rawRows=rows.map((row,ordinal)=>({entity_id:row.entity_id,ordinal}));
+  const query:Query={id,scope:structuredClone(scope),label:clues.length?clues.map(c=>c!.entity!.name).join(' + '):'Area & activity only',mode:'live',createdAt:new Date().toISOString(),clueIds,leadIds,affinities,warnings,receiptId:receipt,geography:{...scope.geography},category:scope.category,inputSnapshot,rawRows};
   file.queries.push(query);
-  return {receipt,title:`${leadIds.length} places returned`,detail:`${query.label}. ${warnings.length?'Provider warnings require review.':'Check premises facts before selecting an enquiry.'}`};
+  return {query,receipt,title:`${leadIds.length} places returned`,detail:`${query.label}. ${warnings.length?'Provider warnings require review.':'Check premises facts before selecting an enquiry.'}`};
 }
 export function safeWebsite(value?:string) {if(!value)return undefined;try{const url=new URL(value);if(!['https:','http:'].includes(url.protocol))return undefined;return url.href;}catch{return undefined;}}
+
+export { discoveryScope };
+export async function discover(owner:string,file:CaseFile,clueIds:string[]) {
+  if(!bindings().QLOO_API_KEY)throw new AppError('Qloo is not configured on the server.',503,'qloo_unavailable');
+  if(new Set(clueIds).size!==clueIds.length || clueIds.some(id=>!file.clues.some(c=>c.id===id&&c.enabled&&c.entity)))throw new AppError('Confirm and enable each selected cultural reference once.');
+  const scope=discoveryScope(file);
+  const probe={id:'',scope,createdAt:new Date().toISOString(),mode:'live',clueIds} as Query;
+  const existing=clueIds.length?controlFor(file,probe,{forReuse:true}):undefined;
+  const reservation=await reserveRequests(owner,'qloo',clueIds.length&&!existing?2:1);
+  try {
+    const outcome=await discoverOne(owner,file,clueIds,scope,reservation);
+    if(clueIds.length){
+      let control=existing;
+      if(!control){
+        try { control=(await discoverOne(owner,file,[],scope,reservation)).query; }
+        catch(error){
+          outcome.query.warnings.push(incompleteControlWarning);
+          if(error instanceof Error)error.message=`The seeded query was saved, but its control failed. ${error.message}`;
+          throw error;
+        }
+      }
+      outcome.query.controlQueryId=control.id;
+      // Existing clients select the latest query after discovery; keep the requested result last.
+      file.queries=file.queries.filter(q=>q.id!==outcome.query.id);file.queries.push(outcome.query);
+    }
+    return outcome;
+  } finally { await releaseRequests(reservation); }
+}
+export async function runControl(owner:string,file:CaseFile,queryId:string) {
+  const query=file.queries.find(q=>q.id===queryId);
+  if(!query?.scope || !query.clueIds.length || query.mode!=='live')throw new AppError('Choose a live seeded query with its full scope recorded.');
+  const existing=controlFor(file,query,{forReuse:true});
+  if(existing){query.controlQueryId=existing.id;query.warnings=query.warnings.filter(w=>w!==incompleteControlWarning);return {title:'Control paired',detail:'Reused the identical-scope control captured on the same UTC day.',receipt:existing.receiptId};}
+  if(!bindings().QLOO_API_KEY)throw new AppError('Qloo is not configured on the server.',503,'qloo_unavailable');
+  const reservation=await reserveRequests(owner,'qloo',1);
+  try {
+    const outcome=await discoverOne(owner,file,[],query.scope,reservation);
+    query.controlQueryId=outcome.query.id;
+    query.warnings=query.warnings.filter(w=>w!==incompleteControlWarning);
+    return outcome;
+  } finally { await releaseRequests(reservation); }
+}

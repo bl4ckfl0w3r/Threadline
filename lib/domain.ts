@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CaseFile, Query, Enquiry, EnquiryResponse, Lead, EnquiryIdentity } from './contracts';
+import type { CaseFile, Query, Enquiry, EnquiryResponse, Lead, EnquiryIdentity, QueryScope, ReferenceChange, PlaceMovement, CaseUsage } from './contracts';
 
 export const clueInput = z.object({ id: z.string().min(1).max(80), label: z.string().trim().min(1).max(180), kind: z.enum(['artist','book','brand','movie','place']), provenance: z.enum(['supplied_interest','observation','uncertain']), enabled: z.boolean() });
 const date = z.string().refine(value => value === '' || (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().startsWith(value)), 'Enter a valid date.');
@@ -30,6 +30,7 @@ export const enquiryResponseSchema = z.object({
 });
 
 export const enquirySchema: z.ZodType<Enquiry> = z.lazy(() => z.object({
+  whyThisCheck: z.string().max(2000).optional(),
   recordTarget: z.string().max(2000).optional(),
   leadId: z.string().max(100),
   question: z.string().max(2000),
@@ -51,6 +52,7 @@ export const enquirySchema: z.ZodType<Enquiry> = z.lazy(() => z.object({
 }));
 
 export const editsSchema = z.object({
+  referenceRelation: z.enum(['chose_place', 'observed_at_place', 'personal_interests']).optional(),
   title: z.string().trim().min(1).max(160).optional(), question: z.string().max(2000).optional(), notes: z.string().max(12000).optional(), caseContext: z.object({known:z.string().max(3000),gap:z.string().max(3000)}).optional(), area: z.string().max(160).optional(), latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional(), radius: z.number().int().min(100).max(50000).optional(), startDate: date.optional(), endDate: date.optional(), activity: z.string().max(500).optional(), category: z.enum(['book_store','all_places']).optional(), clues: z.array(clueInput).max(8).optional(), enquiry: enquirySchema.optional(),
 });
 
@@ -58,6 +60,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({type:z.literal('resolve'),clueId:z.string()}),
   z.object({type:z.literal('confirm'),clueId:z.string(),entityId:z.string()}),
   z.object({type:z.literal('discover'),clueIds:z.array(z.string()).max(8)}),
+  z.object({type:z.literal('run_control'),queryId:z.string().min(1)}),
   z.object({type:z.literal('source'),leadId:z.string(),title:z.string().trim().min(1).max(200),url:z.string().url().max(2000).optional(),excerpt:z.string().trim().min(1).max(16000),note:z.string().max(3000),kind:z.enum(['user_record','user_excerpt'])}),
   z.object({type:z.literal('inspect'),leadId:z.string(),url:z.string().url().max(2000)}),
   z.object({
@@ -147,6 +150,7 @@ export function validEnquiry(file: CaseFile, enquiry: Enquiry): boolean {
 
 export function isScopeCompatible(current: Query, previous?: Query): boolean {
   if (!previous) return true;
+  if (current.scope && previous.scope) return sameQueryScope(current.scope, previous.scope);
   if (!current.geography || !previous.geography) return true;
   return (current.category || '') === (previous.category || '') &&
     current.geography.latitude === previous.geography.latitude &&
@@ -183,7 +187,7 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
   const recordTarget='Check dated event listings or venue information for compatibility. If the details fit, identify a case-linked receipt, booking confirmation or other record that could corroborate the stop.';
   const gap=file.caseContext?.gap?.trim() || file.question;
   const fresh: Enquiry = {
-    leadId:lead.id,question,recordTarget,
+    leadId:lead.id,question,recordTarget,whyThisCheck:'',
     rationale:`Case question: ${file.question}\nGap to resolve: ${gap}\n${sources.length ? `${sources.length} attached source record(s) need review against this question.` : 'No supporting source has been attached yet.'} A cultural association does not establish a visit.`,
     sourceIds:sources.map(s=>s.id),
     confirming:'If public facts fit, seek a record tied to the reported stop. If that record corroborates the stop, update the timeline and identify which uncertainty remains.',
@@ -250,7 +254,7 @@ function formatResponse(r: EnquiryResponse, index: number) {
 - Passage/Absence: ${r.passage}${r.summary ? `\n- Summary: ${r.summary}` : ''}${r.whatChanges ? `\n- What Changes: ${r.whatChanges}` : ''}${r.unresolved ? `\n- Open Uncertainties: ${r.unresolved}` : ''}${receipt}${sourceHandles}`;
 }
 
-export function exportBrief(file: CaseFile) {
+export function exportBrief(file: CaseFile, usage?: CaseUsage) {
   const enquiry=file.enquiry;const lead=file.leads.find(l=>l.id===enquiry?.leadId);
   const responses = enquiry?.responses?.length ? enquiry.responses : (enquiry?.response ? [enquiry.response] : []);
   const responseSection = responses.length
@@ -271,7 +275,7 @@ export function exportBrief(file: CaseFile) {
         const archivedOutcomeText = h.enquiry.outcomeBranch
           ? `\n\n#### Selected Branch Outcome: ${h.enquiry.outcomeBranch}\n${h.enquiry.revisedActionText || h.enquiry.decisionSummary || ''}`
           : '';
-        return `### Archived Enquiry ${i + 1}: ${archivedLead?.name || 'Unresolved Lead'} (${h.recordedAt})\nQuestion: ${h.enquiry.question}\nRecord to check: ${h.enquiry.recordTarget || 'Not specified.'}\n\nRationale:\n${h.enquiry.rationale}\n\nConfirming branch: ${h.enquiry.confirming}\nConflicting branch: ${h.enquiry.conflicting}\nUnavailable branch: ${h.enquiry.unavailable}\n\n${respText}${archivedOutcomeText}\n\n#### Draft (Draft only — no message sent via system)\n${h.enquiry.draft}`;
+        return `### Archived Enquiry ${i + 1}: ${archivedLead?.name || 'Unresolved Lead'} (${h.recordedAt})\nQuestion: ${h.enquiry.question}\nRecord to check: ${h.enquiry.recordTarget || 'Not specified.'}\n\nWhy this check: ${h.enquiry.whyThisCheck || 'Not specified.'}\n\nRationale:\n${h.enquiry.rationale}\n\nConfirming branch: ${h.enquiry.confirming}\nConflicting branch: ${h.enquiry.conflicting}\nUnavailable branch: ${h.enquiry.unavailable}\n\n${respText}${archivedOutcomeText}\n\n#### Draft (Draft only — no message sent via system)\n${h.enquiry.draft}`;
       }).join('\n\n')
     : '';
 
@@ -279,6 +283,9 @@ export function exportBrief(file: CaseFile) {
     `# ${file.title}`,
     file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
     `Question: ${file.question}`,
+    `Reference relation: ${file.referenceRelation || 'Not supplied'}`,
+    ...(usage ? [`Research usage: ${usage.qlooAttempts} Qloo attempts (${usage.qlooFailed} failed or pending); ${usage.modelAttempts} model attempts (${usage.modelFailed} failed or pending).`] : []),
+    ...(file.enquiry?.whyThisCheck ? [`Why this check: ${file.enquiry.whyThisCheck}`] : []),
     `Area: ${file.area}; centre ${file.latitude}, ${file.longitude}; radius ${file.radius} m`,
     `Period: ${file.startDate||'Not supplied'} to ${file.endDate||'Not supplied'}`,
     `## Reported account\n${file.notes}`,
@@ -291,3 +298,63 @@ export function exportBrief(file: CaseFile) {
   ].join('\n\n');
 }
 
+
+export function sameQueryScope(a: QueryScope, b: QueryScope): boolean {
+  const canonical = (s: QueryScope) => JSON.stringify({
+    endpoint:s.endpoint,filterType:s.filterType,category:s.category,tags:[...s.tags].sort(),
+    geography:{latitude:s.geography.latitude,longitude:s.geography.longitude,radius:s.geography.radius},
+    take:s.take,candidateEntityIds:s.candidateEntityIds && [...s.candidateEntityIds].sort(),
+  });
+  return canonical(a) === canonical(b);
+}
+// Shared by provider requests and the UI's saved-input matching.
+export function discoveryScope(file:CaseFile):QueryScope {
+  return {endpoint:'/v2/insights',filterType:'urn:entity:place',category:file.category,
+    tags:file.category==='book_store'?['urn:tag:category:place:book_store']:[],
+    geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},take:20};
+}
+export function controlFor(file: CaseFile, query: Query, options: { forReuse?: boolean } = {}): Query | undefined {
+  if (!query.clueIds.length) return undefined;
+  return [...file.queries].reverse().find(q => {
+    if(q.id===query.id || q.clueIds.length || q.mode!==query.mode)return false;
+    if(query.controlQueryId && query.controlQueryId!==q.id)return false;
+    if(query.scope && q.scope)return sameQueryScope(query.scope,q.scope) &&
+      (!!query.controlQueryId || q.createdAt.slice(0,10)===query.createdAt.slice(0,10));
+    // Historical display may compare legacy category/geography with the warning
+    // returned by whatTheReferencesChanged. Missing scope never permits live reuse.
+    return !options.forReuse && isScopeCompatible(query,q);
+  });
+}
+export function whatTheReferencesChanged(control: Query, seeded: Query): ReferenceChange {
+  const result: ReferenceChange = {
+    compatible:isScopeCompatible(seeded,control),controlQueryId:control.id,seededQueryId:seeded.id,
+    capturedAt:{control:control.createdAt,seeded:seeded.createdAt},
+    warnings:control.scope && seeded.scope ? [] : ['Filters and result limit were not recorded for one of these queries'],
+    places:[],counts:{up:0,down:0,same:0,new:0,dropped:0},
+  };
+  if (!result.compatible) { result.reason='Query scopes differ; direct comparison is disabled.'; return result; }
+  const before = providerRanks(control);
+  const after = providerRanks(seeded);
+  for (const leadId of [...new Set([...seeded.leadIds,...control.leadIds])]) {
+    const controlRank=before.get(leadId),seededRank=after.get(leadId);
+    const change:PlaceMovement['change']=controlRank===undefined?'new':seededRank===undefined?'dropped':controlRank>seededRank?'up':controlRank<seededRank?'down':'same';
+    const movement:PlaceMovement={leadId,controlRank,seededRank,change};
+    if(change==='up'||change==='down')movement.delta=controlRank!-seededRank!;
+    result.places.push(movement); result.counts[change]++;
+  }
+  return result;
+}
+
+// Accept slim live rows and legacy full rows; skipped or duplicate rows never compress positions.
+export function providerRanks(query:Query):Map<string,number> {
+  const ranks=new Map<string,number>();
+  for(const [index,row] of (query.rawRows||[]).entries()){
+    if(!row || typeof row!=='object')continue;
+    const value=row as {entity_id?:unknown;ordinal?:unknown};
+    if(typeof value.entity_id!=='string'||!query.leadIds.includes(value.entity_id)||ranks.has(value.entity_id))continue;
+    const ordinal=typeof value.ordinal==='number'&&Number.isInteger(value.ordinal)&&value.ordinal>=0?value.ordinal:index;
+    ranks.set(value.entity_id,ordinal+1);
+  }
+  query.leadIds.forEach((id,index)=>{if(!ranks.has(id))ranks.set(id,index+1);});
+  return ranks;
+}

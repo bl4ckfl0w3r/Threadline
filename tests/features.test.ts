@@ -973,3 +973,30 @@ test('production hook regression: SourcesView submit relies on perform clearSour
   }
 });
 
+test('usage refresh for an earlier case cannot overwrite the newly opened case',async()=>{
+ const originalFetch=globalThis.fetch;
+ const a=blankCase('usage-a'),b=blankCase('usage-b');
+ const counts=(n:number)=>({qlooAttempts:n,qlooFailed:0,modelAttempts:0,modelFailed:0});
+ let pending=false,resolveUsage:((value:Response)=>void)|undefined;
+ const delayed=new Promise<Response>(resolve=>{resolveUsage=resolve;});
+ localStorage.clear();
+ globalThis.fetch=async(url,options)=>{
+  const path=String(url);
+  if(path==='/api/status')return Response.json({qloo:true,model:false,storage:true,signedIn:true});
+  if(path==='/api/cases')return Response.json({cases:[a,b]});
+  if(path==='/api/cases/usage-b')return Response.json({case:b,usage:counts(7)});
+  if(path==='/api/cases/usage-a/actions'){pending=true;return Response.json({case:{...a,revision:1}});}
+  if(path==='/api/cases/usage-a')return pending?delayed:Response.json({case:a,usage:counts(0)});
+  throw new Error(`Unexpected request ${path} ${options?.method||'GET'}`);
+ };
+ try{
+  const {hook,run}=renderWorkspaceHook();await run();
+  assert.equal(hook.current.file.id,a.id);
+  await run(()=>hook.current.perform({type:'discover',clueIds:[]},'Researching'));
+  await run(()=>hook.current.switchCase(b.id));
+  assert.equal(hook.current.usage.qlooAttempts,7);
+  await run(()=>{resolveUsage!(Response.json({case:a,usage:counts(99)}));});
+  assert.equal(hook.current.file.id,b.id);assert.equal(hook.current.usage.qlooAttempts,7);
+ }finally{globalThis.fetch=originalFetch;}
+});
+

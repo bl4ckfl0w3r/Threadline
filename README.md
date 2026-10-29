@@ -80,3 +80,15 @@ Stitch 0.12.0 documents workspace, priority, context, insight and solution manag
 6. With a clean local checkout, switch to main, fetch and `git merge --ff-only origin/main`. Stop on divergence or uncommitted changes instead of resetting or force-pushing.
 
 Task state remains under ignored private/loop-tasks/. No recurring task dispatch or background polling is configured. Use compact run listings and targeted logs. Preserve browser sessions without login, noindex, server-only secrets, evidence provenance, and honest recorded-demo labels.
+
+## Backend replay and comparison contracts
+
+The demo renderer uses `GET /api/demo?version=2` and validates the CH01 document before rendering. Unversioned `GET /api/demo` retains V1 compatibility. Both routes return `503` with `code: demo_unavailable` when their recording is unavailable. Editable workspace examples continue using the separate `curated-fictional-example` CaseFile row; CH01 uses `ch01-demo`.
+
+Before merging a release that introduces this renderer, an operator must install the approved `ch01-demo` recording in the target environment. Production data installation is a separate, explicitly authorized operation; ordinary releases never seed it. The production smoke check validates the same V2 recording the UI consumes and fails if it is missing or invalid.
+
+Prepare the CH01 recording locally with `node scripts/prepare-ch01-demo.mjs STUDY_FOLDER`. The folder is an operator-supplied frozen study, not part of the repository. The script reads public intake, actual Qloo receipts and only records inspected in the recorded arms; it does not read the private answer key. Its output is ignored `data/recorded/ch01-demo.json`. Generate ignored seed SQL with `node scripts/prepare-demo-seed.mjs data/recorded/ch01-demo.json private/ch01-demo-seed.sql`; install only into an explicitly selected local database. Inspect existing local tables before applying missing additive migrations. Never reset an existing case database or run this seed during ordinary releases.
+
+New discovery queries record the exact request scope and pair seeded results with a same-scope control. The existing action endpoint accepts `{type: 'run_control', queryId}` to retry a missing control without rerunning the seeded query. Partial successes and failure receipts are retained. Request allowances cover both required calls before starting them. The GET case response additionally includes Qloo/model attempt and failed-or-incomplete counts; exports carry the same totals. Optional case `referenceRelation` and enquiry `whyThisCheck` fields are backward compatible. Changing explanatory text does not invalidate an enquiry response identity.
+
+Per-reference query experiments remain deferred until the interface can show the extra request cost before dispatch. No provider requests are made by replaying the demo.

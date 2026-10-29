@@ -1,7 +1,7 @@
 import {owner,json,failure,readBody,AppError} from '@/server/runtime';
 import {readCase,acquire,saveCase,release} from '@/server/store';
 import {actionSchema,draftEnquiry,matchesEnquiryIdentity} from '@/lib/domain';
-import {resolveClue,discover,safeWebsite} from '@/server/qloo';
+import {resolveClue,discover,runControl,safeWebsite} from '@/server/qloo';
 import {inspect} from '@/server/sources';
 import {agentStep} from '@/server/agent';
 import type {CaseFile,EnquiryResponse} from '@/lib/contracts';
@@ -20,6 +20,7 @@ export async function POST(request:Request,context:Context){
       if(!clue || !entity)throw new AppError('Choose an identity returned for this clue.');clue.entity=entity;outcome={title:'Reference confirmed',detail:entity.name};
     }
     if(action.type==='discover')outcome=await discover(user,file,action.clueIds);
+    if(action.type==='run_control')outcome=await runControl(user,file,action.queryId);
     if(action.type==='inspect')outcome=await inspect(user,file,action.leadId,action.url);
     if(action.type==='source'){
       if(!file.leads.some(l=>l.id===action.leadId))throw new AppError('Choose an existing lead.');
@@ -32,6 +33,7 @@ export async function POST(request:Request,context:Context){
       const lead=file.leads.find(l=>l.id===action.leadId);
       if(!lead)throw new AppError('Choose an existing lead for this enquiry.');
       if(action.sourceIds?.some(id=>!file!.sources.some(s=>s.id===id && s.leadId===action.leadId)))throw new AppError('Sources must belong to the selected lead.');
+      if(file.enquiry && file.enquiry.leadId!==action.leadId)throw new AppError('The response target differs from the enquiry being answered. Reload the enquiry before recording a response.',409,'enquiry_conflict');
       if(action.expectedIdentity || action.expectedIdentityJson){
         if(!matchesEnquiryIdentity(file.enquiry, action.expectedIdentity || action.expectedIdentityJson)){
           throw new AppError('The enquiry details changed since this response was drafted. Please review the updated enquiry before recording a response.', 400);

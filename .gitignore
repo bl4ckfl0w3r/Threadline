@@ -38,6 +38,13 @@ yarn-error.log*
 # Workspace scaffolding and publication archives
 /.agents/
 /.codex/
+/.claude/
+/.aws/
+/.vscode/
+/.idea/
+/Claude-UI/
+/.cache/
+/.pnpm-store/
 /outputs/
 /work/
 
@@ -76,6 +83,10 @@ AGENTS.md
 *.pfx
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
 *.db-wal
 *.db-shm
