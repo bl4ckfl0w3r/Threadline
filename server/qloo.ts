@@ -69,7 +69,10 @@ async function discoverOne(owner:string,file:CaseFile,clueIds:string[],scope:Que
       provenance: c!.provenance
     }))
   };
-  const query:Query={id,scope:structuredClone(scope),label:clues.length?clues.map(c=>c!.entity!.name).join(' + '):'Area & activity only',mode:'live',createdAt:new Date().toISOString(),clueIds,leadIds,affinities,warnings,receiptId:receipt,geography:{...scope.geography},category:scope.category,inputSnapshot,rawRows:rows.map((r,idx)=>({...r,ordinal:idx}))};
+  // Full provider rows are already preserved in the immutable result receipt.
+  // Keep the legacy field name and original positions for both existing clients.
+  const rawRows=rows.map((row,ordinal)=>({entity_id:row.entity_id,ordinal}));
+  const query:Query={id,scope:structuredClone(scope),label:clues.length?clues.map(c=>c!.entity!.name).join(' + '):'Area & activity only',mode:'live',createdAt:new Date().toISOString(),clueIds,leadIds,affinities,warnings,receiptId:receipt,geography:{...scope.geography},category:scope.category,inputSnapshot,rawRows};
   file.queries.push(query);
   return {query,receipt,title:`${leadIds.length} places returned`,detail:`${query.label}. ${warnings.length?'Provider warnings require review.':'Check premises facts before selecting an enquiry.'}`};
 }

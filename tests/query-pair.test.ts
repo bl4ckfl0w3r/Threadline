@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { blankCase } from '../lib/domain.ts';
+import { blankCase, whatTheReferencesChanged } from '../lib/domain.ts';
 import type { CaseFile } from '../lib/contracts.ts';
 
 // Runtime boundaries are replaced before loading qloo; no network or Cloudflare binding is used.
@@ -54,5 +54,29 @@ test('a legacy control can be displayed but is never reused to skip a newly scop
  reset();responses([200,200]);await discover('owner',f,['film']);
  assert.deepEqual(reservations,[2]);assert.equal(attempts.length,2);
  assert.notEqual(f.queries.at(-1)!.controlQueryId,f.queries[0].id);
+});
+test('live query rows stay small while full receipts and provider positions survive malformed and duplicate rows',async()=>{
+ reset();
+ const rows=Array.from({length:20},(_,index)=>({entity_id:`venue-${index}`,name:`Venue ${index}`,properties:{address:`${index} Test Street`,description:'Provider-only detail. '.repeat(1600)},tags:[{name:'Cinema'}],query:{affinity:0.5}}));
+ const malformed={name:'Unresolved provider row',properties:{description:'No canonical identity'}};
+ const providerRows:unknown[]=rows.map((row,index)=>index===4?malformed:index===9?{...rows[0],name:'Duplicate venue'}:row);
+ const body={results:{entities:providerRows}};
+ globalThis.fetch=async()=>new Response(JSON.stringify(body),{status:200});
+ const f=file();const {query}=await discover('owner',f,[]);
+ assert.ok(Buffer.byteLength(JSON.stringify(body))>400_000,'Fixture must reproduce the large provider response');
+ assert.deepEqual((results[0] as unknown[])[5],body,'The result receipt retains every original provider field');
+ assert.equal(query.rawRows!.length,20);
+ for(const row of query.rawRows!){assert.ok(Object.keys(row as object).every(key=>key==='entity_id'||key==='ordinal'));}
+ assert.ok(Buffer.byteLength(JSON.stringify(query))<20_000,'Twenty query rows must fit within 20 KB');
+ const legacy={...query,id:'legacy-full-rows',rawRows:providerRows.map((row,index)=>({...row as object,ordinal:index}))};
+ const compared=whatTheReferencesChanged(legacy,query);
+ assert.equal(compared.counts.same,18);
+ assert.ok(compared.places.every(place=>place.controlRank===place.seededRank));
+ assert.equal(compared.places.find(place=>place.leadId==='venue-0')!.seededRank,1,'A duplicate never replaces the first position');
+ assert.equal(compared.places.find(place=>place.leadId==='venue-5')!.seededRank,6,'A malformed row must not compress later ranks');
+ const oldDocument=JSON.stringify(legacy);f.queries.unshift(legacy);
+ await discover('owner',f,[]);
+ assert.equal(JSON.stringify(f.queries[0]),oldDocument,'New searches leave legacy documents intact');
+ assert.equal(results.length,2);
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as any).__threadlineQlooTest;});

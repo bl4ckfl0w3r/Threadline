@@ -339,7 +339,7 @@ export function whatTheReferencesChanged(control: Query, seeded: Query): Referen
   return result;
 }
 
-// Provider positions remain intact when malformed or duplicate rows were excluded from leads.
+// Accept slim live rows and legacy full rows; skipped or duplicate rows never compress positions.
 function providerRanks(query:Query):Map<string,number> {
   const ranks=new Map<string,number>();
   for(const [index,row] of (query.rawRows||[]).entries()){
