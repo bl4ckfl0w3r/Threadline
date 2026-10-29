@@ -35,6 +35,12 @@ test('opening a case prefers the latest exact input match, otherwise its latest 
  const {file,query}=caseAndQuery(),later=structuredClone(query);later.id='later';later.scope!.take=5;file.queries=[query,later];
  assert.equal(openingQuery(file),'query');delete query.scope;assert.equal(openingQuery(file),'later');file.queries=[];assert.equal(openingQuery(file),'');
 });
+test('opening a case with only legacy recordings prefers the one made with the ticked references',()=>{
+ const {file,query}=caseAndQuery();delete query.scope;
+ const control={...structuredClone(query),id:'control',clueIds:[]},single={...structuredClone(query),id:'single',clueIds:['other']};
+ file.queries=[query,control,single];assert.equal(openingQuery(file),'query');
+ file.clues[0].enabled=false;assert.equal(openingQuery(file),'control');
+});
 test('comparison wording handles a downward-only movement and limits unchanged claims to places and order',()=>{
  const {query}=caseAndQuery(),control={...query,clueIds:[],leadIds:['a']};
  assert.match(changeSentence(whatTheReferencesChanged(control,{...query,leadIds:['b','a']})),/moved 1 place down/);

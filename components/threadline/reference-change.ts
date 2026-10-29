@@ -16,9 +16,10 @@ export function matchesInputs(file: CaseFile, query: Query, clueIds: string[]): 
   return captured.every(c => !!c.entityId && file.clues.find(x => x.id === c.id && x.enabled)?.entity?.id === c.entityId);
 }
 
+/** The latest exact input match; else the latest search with the ticked references (legacy recordings); else the latest search. */
 export function openingQuery(file:CaseFile):string {
   const ids=file.clues.filter(clue=>clue.enabled).map(clue=>clue.id);
-  return (file.queries.filter(query=>matchesInputs(file,query,ids)).at(-1)||file.queries.at(-1))?.id||'';
+  return (file.queries.filter(query=>matchesInputs(file,query,ids)).at(-1)||file.queries.filter(query=>sameClues(query.clueIds,ids)).at(-1)||file.queries.at(-1))?.id||'';
 }
 
 /** "Against the same search without references, the references moved 3 places up, surfaced 5 and dropped 5." */
