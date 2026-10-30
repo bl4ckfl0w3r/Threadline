@@ -1,8 +1,8 @@
 'use client';
-import { ArrowRight, ArrowUpRight, Check, ClipboardText, Compass, DownloadSimple, FileText, FolderOpen, GitBranch, MagnifyingGlass, Plus, Quotes, Stop, X } from '@/components/threadline/icons';
+import { ArrowRight, ArrowUpRight, Check, ClipboardText, Compass, DownloadSimple, FileText, FolderOpen, MagnifyingGlass, Plus, Quotes, X } from '@/components/threadline/icons';
 import { Brand, ThreadMark } from '@/components/threadline/brand';
 import { useWorkspace } from '@/components/threadline/use-workspace';
-import { CaseView, LeadsView, SourcesView, EnquiryView } from '@/components/threadline/workspace-views';
+import { AgentPanel, CaseView, LeadsView, SourcesView, EnquiryView } from '@/components/threadline/workspace-views';
 import type { Step } from '@/lib/contracts';
 
 const stages = [
@@ -33,7 +33,7 @@ export default function Workspace() {
           {step==='leads'&&<LeadsView w={w}/>}
           {step==='sources'&&<SourcesView w={w}/>}
           {step==='enquiry'&&<EnquiryView w={w}/>}
-          <details className="research-drawer"><summary><GitBranch size={18}/><span>Research agent</span><span>{w.services?.model?'Connected':'Not connected'}</span><Plus size={18}/></summary><div className="research-content"><p>{file.agent.reason||(w.services?.model?'The agent can choose its next query or source check from the evidence.':'Connect a model on the server to enable agent research. Manual research is available.')}</p>{w.running.current?<button className="button secondary" onClick={()=>{w.running.current=false;w.setNotice('Stopping after the current step.');}}><Stop size={17}/>Stop after step</button>:<button className="button primary" disabled={disabled||!w.services?.model} onClick={w.runAgent}>Research with agent <ArrowRight size={17}/></button>}</div></details>
+          <AgentPanel w={w}/>
           {!!file.activityLog.length&&<details className="activity-log"><summary>Research history <span>{file.activityLog.length} actions</span></summary>{file.activityLog.slice(-16).reverse().map(a=><div className="history-row" key={a.id}><div><strong>{a.title}</strong><p>{a.detail}</p></div><time>{new Date(a.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time></div>)}</details>}
         </>}
       </main>
