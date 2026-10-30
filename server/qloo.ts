@@ -1,7 +1,7 @@
 import type { CaseFile, Entity, Lead, Query, QueryScope, AgentRequestContext } from '@/lib/contracts';
 import { AppError, bindings } from './runtime';
 import { beginReceipt, endReceipt, reserveRequests, releaseRequests } from './store';
-import { controlFor, discoveryScope } from '../lib/domain';
+import { controlFor, discoveryScope, candidateEntityIdsSchema } from '../lib/domain';
 import type { ResearchReservation } from './usage-limits';
 
 const incompleteControlWarning='Comparison incomplete: the control request failed. Retry only the control for this query.';
@@ -43,12 +43,16 @@ async function discoverOne(owner:string,file:CaseFile,clueIds:string[],scope:Que
   if(new Set(clueIds).size!==clueIds.length)throw new AppError('Choose each clue once.');
   const clues=clueIds.map(id=>file.clues.find(c=>c.id===id));
   if(clues.some(c=>!c || !c.enabled || !c.entity))throw new AppError('Confirm and enable the selected cultural references first.');
+  const eligible=scope.candidateEntityIds===undefined?undefined:candidateEntityIdsSchema.parse(scope.candidateEntityIds);
+  const byCanonical=new Map(eligible?.map(id=>[id.toLowerCase(),id]));
   const params:Record<string,string>={'filter.type':scope.filterType,take:String(scope.take),'filter.location':`POINT(${scope.geography.longitude} ${scope.geography.latitude})`,'filter.location.radius':String(scope.geography.radius)};
   if(scope.tags.length)params['filter.tags']=scope.tags.join(',');
   if(scope.candidateEntityIds)params['filter.results.entities']=scope.candidateEntityIds.join(',');
   if(clues.length)params['signal.interests.entities']=clues.map(c=>c!.entity!.id).join(',');
   const {result,receipt}=await request(owner,file,scope.endpoint,params,reservation,context);
-  const rows=!Array.isArray(result.results)?result.results?.entities:undefined;
+  const returned=!Array.isArray(result.results)?result.results?.entities:undefined;
+  if(eligible&&Array.isArray(returned)&&returned.some(row=>row.entity_id&&(typeof row.entity_id!=='string'||!byCanonical.has(row.entity_id.toLowerCase()))))throw new AppError(`Qloo returned an entity outside the candidate restriction. Receipt: ${receipt}`,502,'provider_candidate_mismatch');
+  const rows=Array.isArray(returned)?returned.map(row=>({...row,...(row.entity_id&&eligible?{entity_id:byCanonical.get(row.entity_id.toLowerCase())}: {})})):undefined;
   if(!Array.isArray(rows))throw new AppError(`Qloo Insights returned an unexpected response. Receipt: ${receipt}`,502);
   const id=crypto.randomUUID();const warnings=[result.warnings,result.warning].filter(Boolean).map(w=>typeof w==='string'?w:JSON.stringify(w));
   const affinities:Record<string,number>={};const leadIds:string[]=[];

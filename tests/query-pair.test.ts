@@ -85,4 +85,13 @@ test('agent metadata follows both paired requests and a control retry, while man
  responses([200]);const retry={...run,step:2};await runControl('owner',f,f.queries[0].id,retry);assert.deepEqual(contexts,[run,run,retry]);
  responses([200]);await discover('owner',f,[]);assert.equal(contexts.at(-1),undefined);
 });
+test('restricted paired discovery sends the same verified set, preserves identity casing and rejects outside results',async()=>{
+ reset();const f=file(),a='10000000-0000-4000-8000-00000000000A',b='10000000-0000-4000-8000-00000000000B';f.candidateEntityIds=[b,a];
+ globalThis.fetch=async()=>Response.json({results:{entities:[{entity_id:a.toLowerCase(),name:'Supplied candidate',query:{affinity:0.5}}]}});
+ await discover('owner',f,['film']);const params=attempts as Array<{params:Record<string,string>}>;
+ assert.equal(params[0].params['filter.results.entities'],[a,b].join(','));assert.equal(params[1].params['filter.results.entities'],params[0].params['filter.results.entities']);assert.equal(f.queries[0].leadIds[0],a);
+ reset();globalThis.fetch=async()=>Response.json({results:{entities:[{entity_id:'20000000-0000-4000-8000-000000000001',name:'Outside the five sites'}]}});
+ const restricted=file();restricted.candidateEntityIds=[a];await assert.rejects(discover('owner',restricted,[]),/outside the candidate/);assert.equal(restricted.queries.length,0);assert.equal(restricted.leads.length,0);assert.equal(results.length,1);
+ reset();restricted.candidateEntityIds=[];await assert.rejects(discover('owner',restricted,[]));assert.equal(attempts.length,0);
+});
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as any).__threadlineQlooTest;});

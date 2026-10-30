@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { CaseFile } from '@/lib/contracts';
-import { applyAgentEnquiry,enquirySchema,validEnquiry } from '@/lib/domain';
+import { applyAgentEnquiry,enquirySchema,validEnquiry,matchesDiscoveryInputs } from '@/lib/domain';
 import { AppError, bindings } from './runtime';
 import { beginReceipt,endReceipt,reserveRequests,releaseRequests } from './store';
 import {ensureAgentRun} from '../lib/agent-runs.ts';
@@ -70,8 +70,7 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
       file.enquiry=applyAgentEnquiry(file.enquiry,choice.enquiry);file.agent.status='complete';return;
     }
     if(choice.tool==='discover'){
-      const ids=[...choice.clueIds].sort().join(',');
-      if(file.queries.some(q=>q.mode==='live' && [...q.clueIds].sort().join(',')===ids && q.geography.latitude===file.latitude && q.geography.longitude===file.longitude && q.geography.radius===file.radius && q.category===file.category))throw new AppError('The agent proposed a query already completed for these inputs. Review its findings.',422,'repeated_action');
+      if(file.queries.some(q=>matchesDiscoveryInputs(file,q,choice.clueIds)))throw new AppError('The agent proposed a query already completed for these inputs. Review its findings.',422,'repeated_action');
     }
     if(choice.tool==='resolve' && file.clues.find(c=>c.id===choice.clueId)?.matches?.length)throw new AppError('Please confirm the returned identity before continuing.',422,'confirmation_needed');
     if(choice.tool==='inspect'){
