@@ -3,13 +3,14 @@ import {readCase,acquire,saveCase,release} from '@/server/store';
 import {actionSchema,draftEnquiry,matchesEnquiryIdentity} from '@/lib/domain';
 import {resolveClue,discover,runControl,safeWebsite} from '@/server/qloo';
 import {inspect} from '@/server/sources';
+import {startAgentRun,continueAgentRun,agentActivityContext} from '../../../../../lib/agent-runs.ts';
 import {agentStep} from '@/server/agent';
 import type {CaseFile,EnquiryResponse} from '@/lib/contracts';
 type Context={params:Promise<{id:string}>};
 export async function POST(request:Request,context:Context){
-  let user='',id='',token='';let file:CaseFile|undefined;
+  let user='',id='',token='';let file:CaseFile|undefined;let isAgentStep=false;
   try{
-    user=await owner(request,true);id=(await context.params).id;const body=await readBody(request);const action=actionSchema.parse(body.action);
+    user=await owner(request,true);id=(await context.params).id;const body=await readBody(request);const action=actionSchema.parse(body.action);isAgentStep=action.type==='agent_step';
     if(!Number.isInteger(body.revision))throw new AppError('A saved case revision is required.');
     file=await readCase(user,id);if(file.revision!==body.revision)throw new AppError('This case changed. Reload to continue.',409,'case_conflict');
     token=await acquire(user,id,body.revision);
@@ -69,7 +70,8 @@ export async function POST(request:Request,context:Context){
       outcome={title:'Enquiry response recorded',detail:`${action.respondent} — ${action.outcomeBranch}`,receipt};
     }
     if(action.type==='agent_step')await agentStep(user,file,request);
-    if(action.type==='agent_reset')file.agent={steps:0,status:'idle',reason:''};
+    if(action.type==='agent_reset')startAgentRun(file);
+    if(action.type==='agent_continue'){try{continueAgentRun(file);}catch(error){throw new AppError(error instanceof Error?error.message:'Record a new enquiry response before continuing.',409,'agent_continue_unavailable');}}
     if(outcome)file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:action.type==='source'||action.type==='inspect'?'source':'research',title:outcome.title,detail:outcome.detail,...(outcome.receipt?{receiptId:outcome.receipt}:{})});
     return json({case:await saveCase(user,file,token)});
   }catch(e){
@@ -77,7 +79,7 @@ export async function POST(request:Request,context:Context){
       const errMessage = e instanceof Error ? e.message : 'The action failed.';
       const receiptMatch = errMessage.match(/Receipt:\s*(\S+)/);
       const receiptId = receiptMatch ? receiptMatch[1] : undefined;
-      file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'error',title:'Research needs attention',detail:e instanceof AppError?e.message:'The action failed. No unsupported result was substituted.',...(receiptId?{receiptId}:{})});
+      file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'error',...(isAgentStep?agentActivityContext(file):{}),title:'Research needs attention',detail:e instanceof AppError?e.message:'The action failed. No unsupported result was substituted.',...(receiptId?{receiptId}:{})});
       try{file=await saveCase(user,file,token);const errorResponse=failure(e);const body=await errorResponse.json() as {error:string;code:string};return json({...body,case:file},errorResponse.status);}catch{await release(user,id,token);}
     }
     return failure(e);

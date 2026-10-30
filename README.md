@@ -96,3 +96,13 @@ Prepare the CH01 recording locally with `node scripts/prepare-ch01-demo.mjs STUD
 New discovery queries record the exact request scope and pair seeded results with a same-scope control. The existing action endpoint accepts `{type: 'run_control', queryId}` to retry a missing control without rerunning the seeded query. Partial successes and failure receipts are retained. Request allowances cover both required calls before starting them. The GET case response additionally includes Qloo/model attempt and failed-or-incomplete counts; exports carry the same totals. Optional case `referenceRelation` and enquiry `whyThisCheck` fields are backward compatible. Changing explanatory text does not invalidate an enquiry response identity.
 
 Per-reference query experiments remain deferred until the interface can show the extra request cost before dispatch. No provider requests are made by replaying the demo.
+
+### Agent runs and the live demo comparison
+
+Agent activities and immutable attempt receipts carry server-owned run IDs and step numbers. `GET /api/cases/[id]` adds sanitized `agentRuns` totals and step breakdowns while retaining aggregate `usage`. Counts represent provider attempts; failed or missing HTTP results are included. Legacy receipts remain in case totals without guessed run assignments. Source retrieval attempts do not count individual redirect hops.
+
+`agent_continue` starts a new run only after a completed enquiry receives a valid, previously unreviewed response. It preserves evidence and enquiry history and makes no provider call itself. `agent_reset` is an explicit restart; neither operation resets global, session or network allowances. Continuing from an unanswered agent question is not supported; update the case and explicitly restart instead.
+
+`POST /api/cases` accepts `{ "fromDemo": "ch01" }` to create a fresh fictional case restricted to five supplied venues. It requires a separate validated `ch01-comparison-intake` asset; missing or invalid inputs return `503 demo_comparison_unavailable`. Creation makes no provider calls. The existing discovery action runs the actual paired comparison, and live results can differ from the recorded replay. Recorded outcomes and operational records are never copied into the new case.
+
+For maintainers with the private study sources, `node scripts/prepare-ch01-intake.mjs STUDY_FOLDER` prepares the ignored input JSON and a separate insert-only SQL seed. Review and install that asset separately; ordinary releases never seed or replace demo data. The existing replay and editable example are independent. Tests use synthetic fixtures and do not need private study files.

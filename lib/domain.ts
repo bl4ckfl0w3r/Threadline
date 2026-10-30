@@ -79,7 +79,7 @@ export const actionSchema = z.discriminatedUnion('type', [
     summary: z.string().trim().max(1000).optional(),
     revisedActionText: z.string().trim().max(3000).optional(),
   }),
-  z.object({type:z.literal('agent_step')}),z.object({type:z.literal('agent_reset')}),
+  z.object({type:z.literal('agent_step')}),z.object({type:z.literal('agent_reset')}),z.object({type:z.literal('agent_continue')}),
 ]);
 
 export function getEnquiryIdentity(enquiry?: Enquiry): EnquiryIdentity | null {
@@ -135,6 +135,7 @@ export function applyEdits(file: CaseFile, value: unknown): CaseFile {
   if (clues && new Set(clues.map(c=>c.id)).size!==clues.length) throw new Error('Each clue must have a unique identifier.');
   const result={...file,...edits,...(clues?{clues}:{})};
   if(result.startDate && result.endDate && result.startDate>result.endDate) throw new Error('The end date must follow the start date.');
+  candidateRestriction(result);
   if(result.enquiry && !validEnquiry(result,result.enquiry)) throw new Error('The enquiry must refer to a place and its sources in this case.');
   return result;
 }
@@ -293,11 +294,12 @@ export function exportBrief(file: CaseFile, usage?: CaseUsage) {
 
   return [
     `# ${file.title}`,
-    file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
+    file.origin?.fictional?'Fictional CH01 comparison case; new research results are live and individually receipted.':file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
     `Question: ${file.question}`,
     `Reference relation: ${file.referenceRelation || 'Not supplied'}`,
     ...(usage ? [`Research usage: ${usage.qlooAttempts} Qloo attempts (${usage.qlooFailed} failed or pending); ${usage.modelAttempts} model attempts (${usage.modelFailed} failed or pending).`] : []),
     ...(file.enquiry?.whyThisCheck ? [`Why this check: ${file.enquiry.whyThisCheck}`] : []),
+    ...(file.candidateEntityIds?[`Restricted candidate set: ${candidateRestriction(file)!.length} supplied places. This is not an unrestricted area search.`]:[]),
     `Area: ${file.area}; centre ${file.latitude}, ${file.longitude}; radius ${file.radius} m`,
     `Period: ${file.startDate||'Not supplied'} to ${file.endDate||'Not supplied'}`,
     `## Reported account\n${file.notes}`,
@@ -315,15 +317,28 @@ export function sameQueryScope(a: QueryScope, b: QueryScope): boolean {
   const canonical = (s: QueryScope) => JSON.stringify({
     endpoint:s.endpoint,filterType:s.filterType,category:s.category,tags:[...s.tags].sort(),
     geography:{latitude:s.geography.latitude,longitude:s.geography.longitude,radius:s.geography.radius},
-    take:s.take,candidateEntityIds:s.candidateEntityIds && [...s.candidateEntityIds].sort(),
+    take:s.take,candidateEntityIds:s.candidateEntityIds && s.candidateEntityIds.map(id=>id.toLowerCase()).sort(),
   });
   return canonical(a) === canonical(b);
+}
+// Restrictions are server-owned. A present empty/invalid set must never broaden a query.
+export const candidateEntityIdsSchema=z.array(z.string().uuid()).min(1).max(20)
+  .refine(ids=>new Set(ids.map(id=>id.toLowerCase())).size===ids.length,'Candidate identities must be unique.');
+export function candidateRestriction(file:CaseFile):string[]|undefined {
+  return file.candidateEntityIds===undefined?undefined:candidateEntityIdsSchema.parse(file.candidateEntityIds).sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+export function matchesDiscoveryInputs(file:CaseFile,query:Query,clueIds:string[]):boolean {
+  if(query.mode!=='live'||!query.scope||!sameQueryScope(query.scope,discoveryScope(file)))return false;
+  if(new Set(clueIds).size!==clueIds.length||new Set(query.clueIds).size!==query.clueIds.length||query.clueIds.length!==clueIds.length||!clueIds.every(id=>query.clueIds.includes(id)))return false;
+  if(!clueIds.length)return true;
+  const captured=query.inputSnapshot?.clues;
+  return !!captured&&captured.length===clueIds.length&&new Set(captured.map(c=>c.id)).size===clueIds.length&&captured.every(c=>clueIds.includes(c.id)&&!!c.entityId&&file.clues.some(x=>x.id===c.id&&x.enabled&&x.entity?.id.toLowerCase()===c.entityId!.toLowerCase()));
 }
 // Shared by provider requests and the UI's saved-input matching.
 export function discoveryScope(file:CaseFile):QueryScope {
   return {endpoint:'/v2/insights',filterType:'urn:entity:place',category:file.category,
     tags:file.category==='book_store'?['urn:tag:category:place:book_store']:[],
-    geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},take:20};
+    geography:{latitude:file.latitude,longitude:file.longitude,radius:file.radius},take:20,...(file.candidateEntityIds!==undefined?{candidateEntityIds:candidateRestriction(file)}:{})};
 }
 export function controlFor(file: CaseFile, query: Query, options: { forReuse?: boolean } = {}): Query | undefined {
   if (!query.clueIds.length) return undefined;

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { registerHooks } from 'node:module';
-import { caseUsage } from '../server/usage-limits.ts';
+import { caseUsage,agentRunUsage } from '../server/usage-limits.ts';
 
 const sqlite=new DatabaseSync(':memory:');
 sqlite.exec('CREATE TABLE usage_buckets(bucket TEXT PRIMARY KEY,used INTEGER NOT NULL,expires_at INTEGER); CREATE TABLE receipts(id TEXT PRIMARY KEY,case_id TEXT,owner TEXT,provider TEXT,phase TEXT,request TEXT,response TEXT,created_at TEXT,status INTEGER)');
@@ -38,5 +38,13 @@ test('expired reservation cannot create an attempt or consume pending capacity a
  assert.equal(reservation.remaining,2);
  await releaseRequests(reservation);
  assert.equal(sqlite.prepare('SELECT used FROM usage_buckets WHERE bucket=?').get(reservation.pendingBucket)!.used,0);
+});
+test('receipt writer accepts only explicit server metadata and does not group spoofed or manual requests',async()=>{
+ const context={runId:'10000000-0000-4000-8000-000000000009',step:2};
+ const reservation=await reserveRequests('metadata-owner','qloo',2);
+ const id=await beginReceipt('metadata-owner','metadata-case','qloo',{agent:{runId:'spoofed',step:12},params:{take:'20'}},reservation,context);await endReceipt('metadata-owner','metadata-case','qloo',id,200,{});
+ const manual=await beginReceipt('metadata-owner','metadata-case','qloo',{agent:context},reservation);await endReceipt('metadata-owner','metadata-case','qloo',manual,200,{});
+ const grouped=await agentRunUsage(db as unknown as D1Database,'metadata-owner','metadata-case');assert.equal(grouped.length,1);assert.equal(grouped[0].usage.qlooAttempts,1);assert.equal(grouped[0].steps[0].step,2);
+ assert.equal(JSON.parse(sqlite.prepare('SELECT request FROM receipts WHERE id=?').get(manual)!.request as string).agent,undefined);
 });
 test.after(()=>{sqlite.close();delete (globalThis as any).__threadlineReceiptDB;});
