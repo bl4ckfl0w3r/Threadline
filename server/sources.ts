@@ -1,5 +1,6 @@
 import type { CaseFile } from '@/lib/contracts';
 import { AppError, bindings } from './runtime';
+import type {AgentRequestContext} from '../lib/contracts.ts';
 import { beginReceipt, endReceipt } from './store';
 
 export function sourceURL(value:string) {
@@ -8,10 +9,10 @@ export function sourceURL(value:string) {
   return url;
 }
 function textFromHTML(html:string) {return html.replace(/<(script|style|nav|footer|header)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&#(x[0-9a-f]+|[0-9]+);/gi,(_,code:string)=>{const value=code[0].toLowerCase()==='x'?parseInt(code.slice(1),16):parseInt(code,10);return value>0 && value<=0x10ffff?String.fromCodePoint(value):' ';}).replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/\s+/g,' ').trim();}
-export async function inspect(owner:string,file:CaseFile,leadId:string,value:string) {
+export async function inspect(owner:string,file:CaseFile,leadId:string,value:string,context?:AgentRequestContext) {
   const lead=file.leads.find(l=>l.id===leadId);if(!lead)throw new AppError('Choose a place in this case.');
   let url=sourceURL(value);
-  const receipt=await beginReceipt(owner,file.id,'source',{leadId,url:url.href});
+  const receipt=await beginReceipt(owner,file.id,'source',{leadId,url:url.href},undefined,context);
   let status=0;let recorded=false;
   try {
     let response:Response|undefined;

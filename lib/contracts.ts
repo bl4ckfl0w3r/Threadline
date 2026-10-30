@@ -42,8 +42,13 @@ export type Enquiry = {
   decisionSummary?: string;
   history?: Array<{ enquiry: Enquiry; recordedAt: string }>;
 };
-export type Activity = { id: string; at: string; kind: 'research' | 'source' | 'agent' | 'error' | 'edit'; title: string; detail: string; receiptId?: string };
+export type AgentRequestContext = { runId: string; step: number };
+export type AgentRequestUsage = CaseUsage & { sourceAttempts: number; sourceFailed: number };
+export type AgentRunSummary = { runId: string; usage: AgentRequestUsage; steps: Array<{step:number;usage:AgentRequestUsage}> };
+export type Activity = { runId?: string; step?: number; id: string; at: string; kind: 'research' | 'source' | 'agent' | 'error' | 'edit'; title: string; detail: string; receiptId?: string };
 export type CaseFile = {
+  candidateEntityIds?: string[];
+  origin?: { kind: 'demo_comparison'; studyId: 'CH01'; fictional: true };
   referenceRelation?: 'chose_place' | 'observed_at_place' | 'personal_interests';
   id: string; revision: number; title: string; question: string; notes: string;
   caseContext?: { known: string; gap: string };
@@ -51,7 +56,7 @@ export type CaseFile = {
   startDate: string; endDate: string; activity: string; category: 'book_store' | 'all_places';
   mode: 'live' | 'recorded'; createdAt: string; updatedAt: string; clues: Clue[];
   leads: Lead[]; queries: Query[]; sources: Source[]; enquiry?: Enquiry; activityLog: Activity[];
-  agent: { steps: number; status: 'idle' | 'working' | 'stopped' | 'complete' | 'error'; reason: string };
+  agent: { runId?:string; startedAt?:string; stopReason?:'ask'|'limit'|'manual'|'error'; pendingQuestion?:{id:string;question:string;reason:string;inputFingerprint:string}; reviewedResponseIds?:string[]; steps: number; status: 'idle' | 'working' | 'stopped' | 'complete' | 'error'; reason: string };
 };
 export type Services = { qloo: boolean; model: boolean; storage: boolean; signedIn: boolean; modelName?: string };
 export type CaseSummary = Pick<CaseFile, 'id' | 'title' | 'mode' | 'updatedAt'>;
@@ -90,7 +95,8 @@ export type ResearchAction =
       revisedActionText?: string;
     }
   | { type: 'agent_step' }
-  | { type: 'agent_reset' };
+  | { type: 'agent_reset' }
+  | { type: 'agent_continue' };
 export type ApiFailure = { error: string; code: string };
 
 export type QueryScope = {

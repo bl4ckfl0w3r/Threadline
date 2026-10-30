@@ -1,7 +1,7 @@
-import type { CaseFile } from '@/lib/contracts';
+import type { CaseFile, AgentRequestContext } from '@/lib/contracts';
 import { database, AppError } from './runtime';
 import { reserveResearchBudget, releaseResearchBudget, type ResearchReservation } from './usage-limits';
-export { caseUsage } from './usage-limits';
+export { caseUsage, agentRunUsage } from './usage-limits';
 export async function reserveRequests(owner:string,provider:string,count:number,clientKey?:string) { return reserveResearchBudget(database(),owner,provider,count,Date.now(),clientKey); }
 export async function releaseRequests(reservation:ResearchReservation) { return releaseResearchBudget(database(),reservation); }
 
@@ -29,7 +29,10 @@ export async function saveCase(owner:string,file:CaseFile,token:string) {
   if(result.meta.changes!==1)throw new AppError('The case changed during this action. Reload it to continue.',409,'case_conflict');return next;
 }
 // Attempt and result are distinct immutable rows, including failed provider attempts.
-export async function beginReceipt(owner:string,caseId:string,provider:string,request:unknown,reservation?:ResearchReservation) {
+export async function beginReceipt(owner:string,caseId:string,provider:string,request:unknown,reservation?:ResearchReservation,context?:AgentRequestContext) {
+  const {agent:_untrusted,...payload}=request&&typeof request==='object'&&!Array.isArray(request)?request as Record<string,unknown>:{value:request};
+  if(context&&(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(context.runId)||!Number.isInteger(context.step)||context.step<1||context.step>12))throw new Error('Invalid agent request context.');
+  const recordedRequest={...payload,...(context?{agent:{runId:context.runId,step:context.step}}:{})};
   const budget=reservation || await reserveRequests(owner,provider,1);
   if(budget.remaining<1)throw new Error('The request reservation is exhausted.');
   const id=crypto.randomUUID();
@@ -39,7 +42,7 @@ export async function beginReceipt(owner:string,caseId:string,provider:string,re
       database().prepare(`INSERT INTO receipts (id,case_id,owner,provider,phase,request,created_at)
         SELECT ?,?,?,?,?,?,? WHERE EXISTS (
           SELECT 1 FROM usage_buckets WHERE bucket=? AND used>0 AND expires_at>?
-        )`).bind(id,caseId,owner,provider,'attempt',JSON.stringify(request),new Date(now).toISOString(),budget.pendingBucket,now),
+        )`).bind(id,caseId,owner,provider,'attempt',JSON.stringify(recordedRequest),new Date(now).toISOString(),budget.pendingBucket,now),
       database().prepare(`UPDATE usage_buckets SET used=used-1 WHERE bucket=? AND used>0
         AND EXISTS (SELECT 1 FROM receipts WHERE id=? AND owner=? AND case_id=? AND phase='attempt')`)
         .bind(budget.pendingBucket,id,owner,caseId),

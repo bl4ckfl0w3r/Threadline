@@ -1,3 +1,4 @@
+import type {AgentRunSummary,AgentRequestUsage} from '../lib/contracts.ts';
 export class UsageLimitError extends Error {
   status = 429;
   code = 'usage_limit';
@@ -73,4 +74,27 @@ export async function caseUsage(db:D1Database,owner:string,caseId:string) {
     WHERE a.owner=? AND a.case_id=? AND a.phase='attempt' GROUP BY a.provider`).bind(owner,caseId).all<{provider:string;attempts:number;failed:number}>();
   const qloo=result.results.find(r=>r.provider==='qloo'),model=result.results.find(r=>r.provider==='model');
   return {qlooAttempts:qloo?.attempts||0,qlooFailed:qloo?.failed||0,modelAttempts:model?.attempts||0,modelFailed:model?.failed||0};
+}
+
+// Only sanitized totals leave the server. Never return provider request/response bodies.
+export async function agentRunUsage(db:D1Database,owner:string,caseId:string):Promise<AgentRunSummary[]> {
+  const result=await db.prepare(`SELECT json_extract(a.request,'$.agent.runId') AS runId,
+    json_extract(a.request,'$.agent.step') AS step,a.provider,count(*) AS attempts,
+    sum(CASE WHEN r.status>=200 AND r.status<300 THEN 0 ELSE 1 END) AS failed
+    FROM receipts a LEFT JOIN receipts r ON r.id=a.id||':result' AND r.owner=a.owner
+      AND r.case_id=a.case_id AND r.provider=a.provider AND r.phase='result'
+    WHERE a.owner=? AND a.case_id=? AND a.phase='attempt' AND json_valid(a.request)
+      AND a.provider IN ('model','qloo','source')
+    GROUP BY runId,step,a.provider ORDER BY min(a.created_at),runId,step`)
+    .bind(owner,caseId).all<{runId:unknown;step:unknown;provider:'model'|'qloo'|'source';attempts:number;failed:number}>();
+  const empty=():AgentRequestUsage=>({modelAttempts:0,modelFailed:0,qlooAttempts:0,qlooFailed:0,sourceAttempts:0,sourceFailed:0});
+  const runs=new Map<string,AgentRunSummary>();
+  for(const row of result.results){
+    if(typeof row.runId!=='string'||!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(row.runId)||typeof row.step!=='number'||!Number.isInteger(row.step)||row.step<1||row.step>12)continue;
+    let run=runs.get(row.runId);if(!run){run={runId:row.runId,usage:empty(),steps:[]};runs.set(row.runId,run);}
+    let step=run.steps.find(s=>s.step===row.step);if(!step){step={step:row.step,usage:empty()};run.steps.push(step);}
+    const attempts=`${row.provider}Attempts` as keyof AgentRequestUsage,failed=`${row.provider}Failed` as keyof AgentRequestUsage;
+    for(const usage of [run.usage,step.usage]){usage[attempts]+=row.attempts;usage[failed]+=row.failed;}
+  }
+  return [...runs.values()].map(run=>({...run,steps:run.steps.sort((a,b)=>a.step-b.step)}));
 }
