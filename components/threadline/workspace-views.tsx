@@ -1,13 +1,38 @@
 'use client';
 import { useState } from 'react';
-import { ArrowRight, ArrowUpRight, Check, DownloadSimple, LinkSimple, MagnifyingGlass, MapPin, PencilSimple, Plus, X } from './icons.ts';
+import { ArrowRight, ArrowUpRight, Check, DownloadSimple, GitBranch, LinkSimple, MagnifyingGlass, MapPin, PencilSimple, Plus, Stop, X } from './icons.ts';
 import { regions, type WorkspaceState } from './use-workspace.ts';
 import type { CaseFile, Clue, EnquiryResponse } from '../../lib/contracts.ts';
 import { controlFor, getEnquiryIdentity, getEnquiryIdentityJson, providerRanks, whatTheReferencesChanged } from '../../lib/domain.ts';
 import { humanDate, humanRange, placeHint } from './format.ts';
 import { changeSentence, matchesInputs } from './reference-change.ts';
+import { agentSteps } from './agent-steps.ts';
 
 const relationLabel={chose_place:'They chose the place',observed_at_place:'Seen or heard at the place',personal_interests:'Personal interests only'} as const;
+
+const toolLabel:Record<string,string>={resolve:'Look up a reference in Qloo',discover:'Search Qloo for places',inspect:'Read a public source',ask:'Ask you',finish:'Draft the next enquiry'};
+const applicability={
+  chose_place:'They chose the place, so taste may help order the checks. Nothing shows it drove the booking.',
+  observed_at_place:'The references were seen or heard at the place, so a taste-based order can help pick which records to check first.',
+  personal_interests:'Personal interests only: taste is a weak signal for which place. The agent should say so before spending a Qloo request.',
+} as const;
+export function AgentPanel({w}:{w:WorkspaceState}) {
+  const f=w.file!, model=!!w.services?.model, running=w.running.current, steps=agentSteps(f), status=f.agent.status;
+  const asked=status==='stopped'&&steps.at(-1)?.tool==='ask';
+  const state=running?`Step ${Math.max(f.agent.steps,1)} of 12`:status==='complete'?'Enquiry drafted':asked?'Needs your answer':status==='stopped'?'Stopped':status==='error'?'Last step failed':model?'Ready':'Not connected';
+  const fresh=status==='idle'||status==='working';
+  return <details className="research-drawer" open={running||!fresh||undefined}><summary><GitBranch size={18}/><span>Research agent</span><span>{state}</span><Plus size={18}/></summary>
+    <div className="research-content"><p>{!model?'Connect a model on the server to enable agent research. Manual research is available.':asked?f.agent.reason:status==='error'?'The last step didn’t complete. The steps above it and their receipts are kept.':status==='stopped'?f.agent.reason:'The agent picks one tool at a time (a Qloo search, a source to read, a question for you) and stops at a drafted enquiry.'}</p>
+      {running?<button className="button secondary" onClick={()=>{w.running.current=false;w.setNotice('Stopping after the current step.');}}><Stop size={17}/>Stop after step</button>:<button className="button primary" disabled={w.disabled||!model} onClick={w.runAgent}>{fresh?'Investigate':'Start a new investigation'} <ArrowRight size={17}/></button>}</div>
+    {(steps.length>0||running)&&<ol className="agent-timeline" aria-label="Agent steps in this run">
+      <li className="agent-step applicability"><span className="step-number">0</span><div><strong>Can taste help here?</strong><p>{f.referenceRelation?applicability[f.referenceRelation]:'How the references relate to the place isn’t stated on the case, so a taste-based order carries little weight.'}</p><small>From the case</small></div></li>
+      {steps.map((s,i)=><li key={s.id} className={`agent-step ${s.tool}`}><span className="step-number">{i+1}</span><div><strong>{toolLabel[s.tool]||s.tool}</strong><p>{s.tool==='ask'&&asked&&i===steps.length-1?f.agent.reason:s.reason}</p>{s.result&&<p className="step-result"><span>{s.result.title}</span> {s.result.detail}</p>}</div></li>)}
+      {running&&<li className="agent-step pending" aria-live="polite"><span className="step-number">{steps.length+1}</span><div><strong>Choosing the next step</strong></div></li>}
+    </ol>}
+    {status==='complete'&&!running&&<button className="text-button" onClick={()=>w.goToStep('enquiry')}>Open the drafted enquiry <ArrowRight size={17}/></button>}
+    {w.usage&&(steps.length>0||running)&&<p className="agent-usage">Requests in this case so far: {w.usage.modelAttempts} model, {w.usage.qlooAttempts} Qloo{w.usage.qlooFailed+w.usage.modelFailed?` (${w.usage.qlooFailed+w.usage.modelFailed} failed)`:''}. Counts are for the whole case, not just this run.</p>}
+  </details>;
+}
 
 export function RecoveryBanner({w}:{w:WorkspaceState}) {
   if (!w.recoveryState) return null;

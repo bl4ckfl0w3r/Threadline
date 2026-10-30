@@ -94,6 +94,22 @@ function Inspections({ data }: { data: DemoDataV2 }) {
   </div>;
 }
 
+/** Checks until the record, one line per order: counts from the recorded runs; the unrun Qloo order shows its position only. */
+function Scoreboard({ data }: { data: DemoDataV2 }) {
+  const [listed, qloo] = data.arms, target = data.highlightedLeadId;
+  const reached = (arm: typeof listed) => arm.inspections.find(i => i.leadId === target && i.found === 'match')?.order;
+  const listedAt = reached(listed), qlooAt = reached(qloo);
+  const controlAt = data.control.order.findIndex(o => o.leadId === target) + 1;
+  const rows = [
+    { label: 'Listed order', value: listedAt ? `Check ${listedAt}` : 'Not reached', note: listedAt ? 'Recorded run' : `In ${data.inspectionBudget} checks · recorded run` },
+    { label: 'Qloo, no favourites', value: controlAt > 0 && controlAt <= data.inspectionBudget ? `Check ${controlAt}` : 'Not reached', note: 'Order only · not run' },
+    { label: 'Qloo, with favourites', value: qlooAt ? `Check ${qlooAt}` : 'Not reached', note: 'Recorded run' },
+  ];
+  return <dl className="checks-score" aria-label={`Checks until the ${siteName(data, target)} record`}>
+    {rows.map(r => <div key={r.label}><dt>{r.label}</dt><dd><strong>{r.value}</strong><span>{r.note}</span></dd></div>)}
+  </dl>;
+}
+
 function Ledger({ data }: { data: DemoDataV2 }) {
   const record = receiving(data, data.highlightedLeadId);
   if (!record) return null;
@@ -154,7 +170,7 @@ export default function Demo() {
           {stage === 1 && <><p>The courier’s export names five London cinemas. Each keeps the same three records, and there’s time to inspect three sites.</p><p className="demo-note">Nothing in the case tells them apart.</p></>}
           {stage === 2 && <><p>{data.bridge}</p><p className="demo-note">So her taste can change which site we check first. It can’t tell us where the drive went.</p></>}
           {stage === 3 && <><p>Same five sites, same area. Qloo ranks them without her favourites, then with them.</p>{seeded ? <p className="demo-finding" role="status"><strong>{highlighted}</strong> moves from {position(controlRank)} to {position(seededRank)}.</p> : <p className="demo-note">Without her favourites, {siteName(data, data.control.order[0].leadId)} comes first.</p>}</>}
-          {stage === 4 && <><p>Both recorded runs inspect three sites. Most misses list a different serial; one lists the right serial on another day for another customer.</p><p className="demo-finding">Without her favourites: {position(controlRank)}. With them: {position(seededRank)}.</p></>}
+          {stage === 4 && <><p>Both recorded runs inspect three sites. Most misses list a different serial; one lists the right serial on another day for another customer.</p><Scoreboard data={data} /></>}
           {stage === 5 && <><p>The receiving entry agrees with the intake on item, customer, date and slip. The time fits the torn “17:__”.</p><p className="demo-note">The orange-latch note refers to bay B8, not this entry’s bay P4.</p></>}
           {stage === 6 && <><p>The handover to the site is supported. Where the drive went next isn’t.</p><p className="demo-note">Onward delivery and recovery remain unestablished.</p></>}
         </div>
