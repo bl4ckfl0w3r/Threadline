@@ -9,8 +9,8 @@ export function ensureAgentRun(file:CaseFile) {
   // An upgraded legacy run keeps its existing step cap; old entries stay ungrouped.
   file.agent.runId??=crypto.randomUUID();file.agent.startedAt??=new Date().toISOString();
 }
-export function agentRequestContext(file:CaseFile):AgentRequestContext|undefined {
-  return file.agent.runId&&file.agent.steps>0?{runId:file.agent.runId,step:file.agent.steps}:undefined;
+export function agentActivityContext(file:CaseFile):Partial<AgentRequestContext> {
+  return file.agent.runId?{runId:file.agent.runId,...(file.agent.steps>0?{step:file.agent.steps}:{})}:{};
 }
 export function continueAgentRun(file:CaseFile) {
   const enquiry=file.enquiry;

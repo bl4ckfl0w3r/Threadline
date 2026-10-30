@@ -3,7 +3,7 @@ import {readCase,acquire,saveCase,release} from '@/server/store';
 import {actionSchema,draftEnquiry,matchesEnquiryIdentity} from '@/lib/domain';
 import {resolveClue,discover,runControl,safeWebsite} from '@/server/qloo';
 import {inspect} from '@/server/sources';
-import {startAgentRun,continueAgentRun,agentRequestContext} from '../../../../../lib/agent-runs.ts';
+import {startAgentRun,continueAgentRun,agentActivityContext} from '../../../../../lib/agent-runs.ts';
 import {agentStep} from '@/server/agent';
 import type {CaseFile,EnquiryResponse} from '@/lib/contracts';
 type Context={params:Promise<{id:string}>};
@@ -79,7 +79,7 @@ export async function POST(request:Request,context:Context){
       const errMessage = e instanceof Error ? e.message : 'The action failed.';
       const receiptMatch = errMessage.match(/Receipt:\s*(\S+)/);
       const receiptId = receiptMatch ? receiptMatch[1] : undefined;
-      file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'error',...(isAgentStep?agentRequestContext(file):{}),title:'Research needs attention',detail:e instanceof AppError?e.message:'The action failed. No unsupported result was substituted.',...(receiptId?{receiptId}:{})});
+      file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'error',...(isAgentStep?agentActivityContext(file):{}),title:'Research needs attention',detail:e instanceof AppError?e.message:'The action failed. No unsupported result was substituted.',...(receiptId?{receiptId}:{})});
       try{file=await saveCase(user,file,token);const errorResponse=failure(e);const body=await errorResponse.json() as {error:string;code:string};return json({...body,case:file},errorResponse.status);}catch{await release(user,id,token);}
     }
     return failure(e);

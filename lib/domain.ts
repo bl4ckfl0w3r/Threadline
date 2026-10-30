@@ -294,11 +294,12 @@ export function exportBrief(file: CaseFile, usage?: CaseUsage) {
 
   return [
     `# ${file.title}`,
-    file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
+    file.origin?.fictional?'Fictional CH01 comparison case; new research results are live and individually receipted.':file.mode==='recorded'?'Fictional example case; recorded results are labelled individually.':'Investigation working brief',
     `Question: ${file.question}`,
     `Reference relation: ${file.referenceRelation || 'Not supplied'}`,
     ...(usage ? [`Research usage: ${usage.qlooAttempts} Qloo attempts (${usage.qlooFailed} failed or pending); ${usage.modelAttempts} model attempts (${usage.modelFailed} failed or pending).`] : []),
     ...(file.enquiry?.whyThisCheck ? [`Why this check: ${file.enquiry.whyThisCheck}`] : []),
+    ...(file.candidateEntityIds?[`Restricted candidate set: ${candidateRestriction(file)!.length} supplied places. This is not an unrestricted area search.`]:[]),
     `Area: ${file.area}; centre ${file.latitude}, ${file.longitude}; radius ${file.radius} m`,
     `Period: ${file.startDate||'Not supplied'} to ${file.endDate||'Not supplied'}`,
     `## Reported account\n${file.notes}`,

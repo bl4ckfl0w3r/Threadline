@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {registerHooks} from 'node:module';
 import {applyAgentEnquiry,blankCase,actionSchema,draftEnquiry} from '../lib/domain.ts';
+import {continueAgentRun} from '../lib/agent-runs.ts';
 import {serializeModelContext,MODEL_CONTEXT_MAX_BYTES} from '../server/model-context.ts';
 import {reserveResearchBudget,clientBucket,MODEL_LIMITS} from '../server/usage-limits.ts';
 
@@ -121,5 +122,11 @@ test('transport, timeout and non-JSON failures return safe actionable errors wit
   await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code===scenario.code&&!error.message.includes(config.MODEL_API_KEY));
   assert.equal(calls,1);assert.equal(attempts,attemptsBefore+1);assert.equal(results.length,resultsBefore+1);assert.equal(results.at(-1)![4],scenario.status);assert.doesNotMatch(JSON.stringify(results.at(-1)),/private-test-provider-key/);assert.equal(file.agent.status,'error');
  }
+});
+test('a continued real agent step reads the recorded answer and archives it when drafting another enquiry',async()=>{
+ allowed=true;const file=blankCase('continued');file.leads=['a','b'].map(id=>({id,name:id,address:'Here',tags:[],introducedBy:'supplied'}));file.enquiry=draftEnquiry(file,file.leads[0]);
+ const reply={id:'actual-reply',respondent:'Records desk',receivedAt:'2026-10-30',passage:'The ledger identifies the item but gives no consignment contents.',outcomeBranch:'confirming' as const,unresolved:'Obtain the contents manifest.'};file.enquiry.response=reply;file.agent.status='complete';continueAgentRun(file);const runId=file.agent.runId;
+ globalThis.fetch=async(_url,options)=>{const body=JSON.parse(String(options?.body)),context=JSON.parse(body.messages[1].content);assert.equal(context.enquiry.response.passage,reply.passage);assert.match(body.messages[0].content,/actual passage/);return Response.json({choices:[{message:{content:JSON.stringify({tool:'finish',reason:'The receiving entry leaves the consignment unresolved.',enquiry:{...draftEnquiry(file,file.leads[1]),question:'Which consignment contents manifest lists this item?'}})}}]});};
+ await agentStep('owner',file);assert.equal(file.agent.runId,runId);assert.equal(file.agent.status,'complete');assert.equal(file.agent.steps,1);assert.equal(file.enquiry.leadId,'b');assert.equal(file.enquiry.history![0].enquiry.response!.id,reply.id);assert.equal(file.enquiry.response,undefined);
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as unknown as {__modelSecurityTest?:typeof state}).__modelSecurityTest;});
