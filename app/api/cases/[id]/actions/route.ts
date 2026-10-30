@@ -68,7 +68,7 @@ export async function POST(request:Request,context:Context){
       if(action.summary) file.enquiry.decisionSummary=action.summary;
       outcome={title:'Enquiry response recorded',detail:`${action.respondent} — ${action.outcomeBranch}`,receipt};
     }
-    if(action.type==='agent_step')await agentStep(user,file);
+    if(action.type==='agent_step')await agentStep(user,file,request);
     if(action.type==='agent_reset')file.agent={steps:0,status:'idle',reason:''};
     if(outcome)file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:action.type==='source'||action.type==='inspect'?'source':'research',title:outcome.title,detail:outcome.detail,...(outcome.receipt?{receiptId:outcome.receipt}:{})});
     return json({case:await saveCase(user,file,token)});

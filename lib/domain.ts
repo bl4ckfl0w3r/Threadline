@@ -177,6 +177,18 @@ export function compareQueries(current: Query, previous?: Query): { compatible?:
   };
 }
 
+// A model may propose a draft, but only an investigator can record an answer.
+export function applyAgentEnquiry(previous:Enquiry|undefined,generated:Enquiry,now=new Date().toISOString()):Enquiry {
+  const draft:Enquiry={leadId:generated.leadId,question:generated.question,recordTarget:generated.recordTarget,
+    whyThisCheck:generated.whyThisCheck,rationale:generated.rationale,sourceIds:[...generated.sourceIds],
+    confirming:generated.confirming,conflicting:generated.conflicting,unavailable:generated.unavailable,draft:generated.draft};
+  if(!previous)return draft;
+  if(matchesEnquiryIdentity(previous,getEnquiryIdentity(draft)!))return {...structuredClone(previous),...draft};
+  const {history,...answered}=previous;
+  if((history?.length||0)>=100)throw new Error('Enquiry history is full. Export this case before starting another enquiry.');
+  return {...draft,history:[...structuredClone(history||[]),{enquiry:structuredClone(answered),recordedAt:now}]};
+}
+
 export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false): Enquiry {
   if (!forceRegenerate && file.enquiry && file.enquiry.leadId === lead.id) {
     return file.enquiry;
