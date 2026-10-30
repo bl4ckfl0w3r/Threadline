@@ -190,6 +190,12 @@ export function applyAgentEnquiry(previous:Enquiry|undefined,generated:Enquiry,n
   return {...draft,history:[...structuredClone(history||[]),{enquiry:structuredClone(answered),recordedAt:now}]};
 }
 
+// States nothing about the case that an answer has yet to establish.
+export function neutralEnquiryDraft(file: CaseFile, lead: Lead): string {
+  const when=file.startDate ? `between ${file.startDate} and ${file.endDate || file.startDate}` : 'during the relevant period';
+  return `Subject: Venue and event information — ${lead.name}\n\nI am checking an account involving ${file.activity || 'an unidentified stop'} ${when}. Could you point me to dated event listings or venue information that would help check those details?\n\nI am first trying to establish activity and date compatibility. Whether this was the reported stop remains unresolved.\n\nThank you.`;
+}
+
 export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false): Enquiry {
   if (!forceRegenerate && file.enquiry && file.enquiry.leadId === lead.id) {
     return file.enquiry;
@@ -206,7 +212,7 @@ export function draftEnquiry(file: CaseFile, lead: Lead, forceRegenerate = false
     confirming:'If public facts fit, seek a record tied to the reported stop. If that record corroborates the stop, update the timeline and identify which uncertainty remains.',
     conflicting:'Record what conflicts. A reliable date, branch or activity mismatch can reduce this lead’s priority; a missing web listing alone cannot rule it out.',
     unavailable:'Leave the stop unresolved. Seek another source or a more precise recollection; lack of a response does not disprove a visit.',
-    draft:`Subject: Venue and event information — ${lead.name}\n\nI am checking an account involving ${file.activity || 'an unidentified stop'} ${when}. Could you point me to dated event listings or venue information that would help check those details?\n\nI am first trying to establish activity and date compatibility. Whether this was the reported stop remains unresolved.\n\nThank you.`
+    draft:neutralEnquiryDraft(file,lead)
   };
 
   if (!file.enquiry) {

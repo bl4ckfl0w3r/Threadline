@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import type { CaseFile } from '@/lib/contracts';
-import { applyAgentEnquiry,enquirySchema,validEnquiry,matchesDiscoveryInputs } from '@/lib/domain';
+import { applyAgentEnquiry,enquirySchema,validEnquiry,matchesDiscoveryInputs,neutralEnquiryDraft } from '@/lib/domain';
 import { AppError, bindings } from './runtime';
 import { beginReceipt,endReceipt,reserveRequests,releaseRequests } from './store';
 import {ensureAgentRun} from '../lib/agent-runs.ts';
+import {draftOverclaims,parseModelJson} from '../lib/agent-replies.ts';
+import {isLeadHost} from '../lib/source-hosts.ts';
 import { resolveClue,discover,runControl } from './qloo';
 import { inspect } from './sources';
 import { clientBucket } from './usage-limits';
@@ -25,7 +27,9 @@ Available action shapes:
 {"tool":"inspect","leadId":"existing lead id","url":"HTTPS URL on the existing lead website or a previously captured source host","reason":"specific missing fact"}
 {"tool":"ask","question":"one missing fact or identity confirmation needed","reason":"why it matters"}
 {"tool":"finish","reason":"why this is the next enquiry","enquiry":{"leadId":"existing lead id","question":"specific next check","recordTarget":"specific record to inspect and what it could establish","rationale":"sourced rationale and remaining uncertainty","whyThisCheck":"the uncertainty this record can resolve","sourceIds":["existing sources for that lead"],"confirming":"next step if confirmed","conflicting":"next step if contradicted","unavailable":"next step if unavailable","draft":"editable enquiry draft"}}
-Consider referenceRelation before spending requests. If it is personal_interests, state that taste is a weak signal for this step before choosing whether a cultural query could change the useful next check. Even chose_place does not establish that preferences informed the booking. Explain any concrete bridge without claiming one exists. Resolve existing explicit references; when identities have been returned but are unconfirmed, ask for confirmation. Only query confirmed enabled clue IDs. Select different subsets or a baseline when the comparison addresses an actual uncertainty. Multiple queries are available; do not automatically combine all clues or blindly perform every combination. Distinguish conditional cultural associations, public facts, and actual case-linked observations. Rank is not a probability. Missing results are not negative evidence. Never infer guilt, personal attendance or a route from affinity. Direct case evidence can supersede associations. Investigate the remembered activity even when its category differs from the seed medium. Do not invent a private record, citation, entity ID or successful outcome. Preserve date/branch/source conflicts. Unknown availability is unknown. Never claim measured accuracy or time saved. Cite only existing source handles and accurately describe their supplied/fetched/recorded status. A user-provided excerpt is not independently verified. Tie each proposed enquiry to the reported incident and caseContext.gap. Name the record to inspect and distinguish venue compatibility from corroboration of a stop. Do not invent timeline anchors. Finish with a useful conditional enquiry when justified; ask for information or stop when further calls won't help. Do not repeat an identical query or a failed source URL in the current case. You have at most 12 model steps per run. When an enquiry has a recorded response, plan from its actual passage, source status and unresolved question, not just its selected branch. Do not propose the same enquiry again unless you explain what remains unresolved. If a seeded result exists but its control failed, use run_control rather than repeating discovery. Reasons are concise decision summaries, not chain-of-thought.`;
+Consider referenceRelation before spending requests. If it is personal_interests, state that taste is a weak signal for this step before choosing whether a cultural query could change the useful next check. Even chose_place does not establish that preferences informed the booking. Explain any concrete bridge without claiming one exists. Resolve existing explicit references; when identities have been returned but are unconfirmed, ask for confirmation. Only query confirmed enabled clue IDs. Select different subsets or a baseline when the comparison addresses an actual uncertainty. Multiple queries are available; do not automatically combine all clues or blindly perform every combination. Distinguish conditional cultural associations, public facts, and actual case-linked observations. Rank is not a probability. Missing results are not negative evidence. Never infer guilt, personal attendance or a route from affinity. Direct case evidence can supersede associations. Investigate the remembered activity even when its category differs from the seed medium. Do not invent a private record, citation, entity ID or successful outcome. Preserve date/branch/source conflicts. Unknown availability is unknown. Never claim measured accuracy or time saved. Cite only existing source handles and accurately describe their supplied/fetched/recorded status. A user-provided excerpt is not independently verified. Tie each proposed enquiry to the reported incident and caseContext.gap. Name the record to inspect and distinguish venue compatibility from corroboration of a stop. Do not invent timeline anchors. Finish with a useful conditional enquiry when justified; ask for information or stop when further calls won't help. Do not repeat an identical query or a failed source URL in the current case. You have at most 12 model steps per run. When an enquiry has a recorded response, plan from its actual passage, source status and unresolved question, not just its selected branch. Do not propose the same enquiry again unless you explain what remains unresolved. If a seeded result exists but its control failed, use run_control rather than repeating discovery. Reasons are concise decision summaries, not chain-of-thought.
+The enquiry draft goes to a third party who knows nothing about this case, and every fact in it must keep the status its source gives it. Ask rather than assert. Never state or presuppose that an event was held at this place, that an item was delivered to or received by it, or that someone visited it, unless a captured source says so directly, and then name that source. Attribute supplied material ("a supplied worksheet suggests", "a courier note records") and never present it as confirmed or as the sender's own verified record. Keep item numbers, dates and mismatches exactly as supplied, and state a mismatch instead of resolving it. If a source could not be read, the activity log says so; choose a different step. Keep every text field brief: the whole JSON reply must stay under 600 words.`;
+const SOURCE_FAILURES=new Set(['source_host_unavailable','source_unavailable','source_format']);
 
 export async function agentStep(owner:string,file:CaseFile,request?:Request) {
   const config=bindings();
@@ -36,7 +40,7 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
   let context:string;
   try{context=serializeModelContext(file);}catch(error){throw new AppError(error instanceof Error?error.message:'The case is too large for one agent step.',413,'model_context_limit');}
   const client=request&&config.SESSION_SIGNING_KEY?await clientBucket(request,config.SESSION_SIGNING_KEY):undefined;
-  const reservation=await reserveRequests(owner,'model',1,client);
+  let reservation=await reserveRequests(owner,'model',1,client);
   ensureAgentRun(file);const tags={runId:file.agent.runId!,step:file.agent.steps+1};
   let receipt:string;
   try{receipt=await beginReceipt(owner,file.id,'model',{model:config.MODEL_NAME,step:file.agent.steps+1,caseRevision:file.revision},reservation,tags);}
@@ -44,29 +48,58 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
   file.agent.steps++;file.agent.status='working';delete file.agent.stopReason;
   let completed=false,responseStatus=0;
   try {
-    let response:Response;
-    try {
-      // Workers supports manual/follow, not redirect:error. Never forward the
-      // provider credential to a redirect destination.
-      response=await fetch(url,{method:'POST',redirect:'manual',headers:{Authorization:`Bearer ${config.MODEL_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.MODEL_NAME,messages:[{role:'system',content:instruction},{role:'user',content:context}],max_tokens:3000,response_format:{type:'json_object'},...(config.MODEL_REASONING_EFFORT?{reasoning_effort:config.MODEL_REASONING_EFFORT}:{})}),signal:AbortSignal.timeout(60000)});
-    }catch(error){
-      const timeout=error instanceof Error && ['TimeoutError','AbortError'].includes(error.name);
-      throw new AppError(timeout?'The model service timed out. No research tool was executed.':'The model service could not be reached. No research tool was executed.',timeout?504:502,timeout?'model_timeout':'model_transport_failed');
+    // One retry for a reply that was cut off or could not be used. Provider failures are not retried.
+    const started=Date.now(),messages=[{role:'system',content:instruction},{role:'user',content:context}];
+    let choice:z.infer<typeof choiceSchema>|undefined,overclaimed:Extract<z.infer<typeof choiceSchema>,{tool:'finish'}>|undefined,draftReplaced=false;
+    for(let attempt=1;!choice;attempt++){
+      const retry=attempt>1;
+      let response:Response;
+      try {
+        // Workers supports manual/follow, not redirect:error. Never forward the
+        // provider credential to a redirect destination.
+        response=await fetch(url,{method:'POST',redirect:'manual',headers:{Authorization:`Bearer ${config.MODEL_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.MODEL_NAME,messages,max_tokens:8000,response_format:{type:'json_object'},...(config.MODEL_REASONING_EFFORT?{reasoning_effort:retry?'low':config.MODEL_REASONING_EFFORT}:{})}),signal:AbortSignal.timeout(retry?40000:60000)});
+      }catch(error){
+        const timeout=error instanceof Error && ['TimeoutError','AbortError'].includes(error.name);
+        throw new AppError(timeout?'The model service timed out. No research tool was executed.':'The model service could not be reached. No research tool was executed.',timeout?504:502,timeout?'model_timeout':'model_transport_failed');
+      }
+      responseStatus=response.status;
+      if(response.status>=300 && response.status<400)throw new AppError('The model service returned a redirect. No credential was forwarded and no research tool was executed.',502,'model_redirect');
+      let body:{choices?:{finish_reason?:string;message?:{content?:string}}[]};
+      try{body=await response.json();}catch{throw new AppError('The model service returned an unreadable response. No research tool was executed.',502,'model_response');}
+      await endReceipt(owner,file.id,'model',receipt,response.status,body);completed=true;
+      if(!response.ok)throw new AppError(`The model service could not complete this step (${response.status}).`,502,'model_request_failed');
+      const reply=body?.choices?.[0],content=reply?.message?.content,cutOff=reply?.finish_reason==='length';
+      let unusable:AppError|undefined,overclaims:string[]=[];
+      if(!content)unusable=new AppError(cutOff?'The model reply was cut off at its length limit. No research tool was executed.':'The model returned no usable action.',502,'model_response');
+      else{
+        let raw:unknown;
+        try{raw=parseModelJson(content);}catch{unusable=new AppError(cutOff?'The model reply was cut off at its length limit. No research tool was executed.':'The model returned an unreadable action. No research tool was executed.',502,'model_response');}
+        if(!unusable){
+          const parsed=choiceSchema.safeParse(raw);
+          if(!parsed.success)unusable=new AppError('The model selected an invalid action. No research tool was executed.',502,'model_action_invalid');
+          else if(parsed.data.tool==='finish' && !validEnquiry(file,parsed.data.enquiry))unusable=new AppError('The model cited a place or source outside this case.',502,'model_reference_invalid');
+          else if(parsed.data.tool==='finish' && (overclaims=draftOverclaims(parsed.data.enquiry.draft)).length)overclaimed=parsed.data;
+          else choice=parsed.data;
+        }
+      }
+      if(choice)break;
+      // A sound enquiry keeps its checks with a neutral draft; anything else stays a failed step.
+      const giveUp=()=>{
+        if(!overclaimed)throw unusable;
+        overclaimed.enquiry.draft=neutralEnquiryDraft(file,file.leads.find(l=>l.id===overclaimed!.enquiry.leadId)!);draftReplaced=true;return overclaimed;
+      };
+      if(retry || Date.now()-started>60000){choice=giveUp();break;}
+      let nextReservation;
+      try{nextReservation=await reserveRequests(owner,'model',1,client);}catch{choice=giveUp();break;}
+      try{receipt=await beginReceipt(owner,file.id,'model',{model:config.MODEL_NAME,step:file.agent.steps,caseRevision:file.revision,retry:true},nextReservation,tags);}
+      catch{await releaseRequests(nextReservation);choice=giveUp();break;}
+      reservation=nextReservation;completed=false;responseStatus=0;
+      messages.push({role:'user',content:overclaims.length?`Your enquiry draft stated something the evidence does not establish: ${JSON.stringify(overclaims)}. Reply again with the same JSON shape, asking about these points instead of asserting them and attributing supplied material.`:'Your previous reply was cut off or could not be used. Reply again with one complete, valid JSON object from the listed shapes, with brief text fields.'});
     }
-    responseStatus=response.status;
-    if(response.status>=300 && response.status<400)throw new AppError('The model service returned a redirect. No credential was forwarded and no research tool was executed.',502,'model_redirect');
-    let body:{choices?:{message?:{content?:string}}[]};
-    try{body=await response.json();}catch{throw new AppError('The model service returned an unreadable response. No research tool was executed.',502,'model_response');}
-    await endReceipt(owner,file.id,'model',receipt,response.status,body);completed=true;
-    if(!response.ok)throw new AppError(`The model service could not complete this step (${response.status}).`,502,'model_request_failed');
-    const content=body?.choices?.[0]?.message?.content;if(!content)throw new AppError('The model returned no usable action.',502,'model_response');
-    let raw:unknown;try{raw=JSON.parse(content);}catch{throw new AppError('The model returned an unreadable action. No research tool was executed.',502,'model_response');}
-    const parsed=choiceSchema.safeParse(raw);if(!parsed.success)throw new AppError('The model selected an invalid action. No research tool was executed.',502,'model_action_invalid');
-    const choice=parsed.data;file.agent.reason=choice.reason;
-    file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'agent',title:`Agent chose ${choice.tool}`,detail:choice.tool==='ask'?`${choice.reason} Question: ${choice.question}`:choice.reason,receiptId:receipt,...tags});
+    file.agent.reason=choice.reason;
+    file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'agent',title:`Agent chose ${choice.tool}`,detail:choice.tool==='ask'?`${choice.reason} Question: ${choice.question}`:draftReplaced?`${choice.reason} Its draft stated more than the evidence supports, so a neutral draft was used instead.`:choice.reason,receiptId:receipt,...tags});
     if(choice.tool==='ask'){file.agent.status='stopped';file.agent.stopReason='ask';file.agent.pendingQuestion={id:crypto.randomUUID(),question:choice.question,reason:choice.reason,inputFingerprint:''};file.agent.reason=choice.question;return;}
     if(choice.tool==='finish'){
-      if(!validEnquiry(file,choice.enquiry))throw new AppError('The model cited a place or source outside this case.',502,'model_reference_invalid');
       file.enquiry=applyAgentEnquiry(file.enquiry,choice.enquiry);file.agent.status='complete';return;
     }
     if(choice.tool==='discover'){
@@ -75,11 +108,20 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
     if(choice.tool==='resolve' && file.clues.find(c=>c.id===choice.clueId)?.matches?.length)throw new AppError('Please confirm the returned identity before continuing.',422,'confirmation_needed');
     if(choice.tool==='inspect'){
       const lead=file.leads.find(l=>l.id===choice.leadId);const host=new URL(choice.url).hostname;
-      const hosts=[lead?.website,...file.sources.filter(s=>s.leadId===choice.leadId).map(s=>s.url)].filter(Boolean).map(u=>new URL(u!).hostname);
-      if(!hosts.includes(host))throw new AppError('The model selected a source host not attached to this place.',422,'source_reference_invalid');
+      const hosts=file.sources.filter(s=>s.leadId===choice.leadId).map(s=>s.url).filter(Boolean).map(u=>new URL(u!).hostname);
+      if(!isLeadHost(host,lead?.website) && !hosts.includes(host))throw new AppError('The model selected a source host not attached to this place.',422,'source_reference_invalid');
       if(file.sources.some(s=>s.leadId===choice.leadId && s.url===choice.url && s.mode==='live'))throw new AppError('This source has already been captured. Review it before another request.',422,'repeated_action');
+      if(file.activityLog.some(a=>a.title==='Source could not be read' && a.detail.startsWith(choice.url)))throw new AppError('This source could not be read earlier. Review the findings or attach an excerpt.',422,'repeated_action');
+      try{const read=await inspect(owner,file,choice.leadId,choice.url,tags);file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'research',title:read.title,detail:read.detail,receiptId:read.receipt,...tags});}
+      catch(error){
+        // A site that refuses a read is a finding, not the end of the run.
+        if(!(error instanceof Error && 'code' in error && SOURCE_FAILURES.has(String(error.code))))throw error;
+        file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'research',title:'Source could not be read',detail:`${choice.url}: ${error.message}`,...tags});
+      }
+      if(file.agent.steps>=12){file.agent.status='stopped';file.agent.stopReason='limit';file.agent.reason='Research limit reached. Review the collected sources and choose the next enquiry.';}
+      return;
     }
-    const outcome=choice.tool==='resolve'?await resolveClue(owner,file,choice.clueId,tags):choice.tool==='discover'?await discover(owner,file,choice.clueIds,tags):choice.tool==='run_control'?await runControl(owner,file,choice.queryId,tags):await inspect(owner,file,choice.leadId,choice.url,tags);
+    const outcome=choice.tool==='resolve'?await resolveClue(owner,file,choice.clueId,tags):choice.tool==='discover'?await discover(owner,file,choice.clueIds,tags):await runControl(owner,file,choice.queryId,tags);
     file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'research',title:outcome.title,detail:outcome.detail,receiptId:outcome.receipt,...tags});
     if(file.agent.steps>=12){file.agent.status='stopped';file.agent.stopReason='limit';file.agent.reason='Research limit reached. Review the collected sources and choose the next enquiry.';}
   }catch(error){if(!completed)await endReceipt(owner,file.id,'model',receipt,responseStatus,{error:error instanceof AppError?error.message:'Model step failed or timed out.'});file.agent.status='error';file.agent.stopReason='error';throw error;}
