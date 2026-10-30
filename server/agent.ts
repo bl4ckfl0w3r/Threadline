@@ -38,10 +38,21 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
   try{receipt=await beginReceipt(owner,file.id,'model',{model:config.MODEL_NAME,step:file.agent.steps+1,caseRevision:file.revision},reservation);}
   catch(error){await releaseRequests(reservation);throw error;}
   file.agent.steps++;file.agent.status='working';
-  let completed=false;
+  let completed=false,responseStatus=0;
   try {
-    const response=await fetch(url,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${config.MODEL_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.MODEL_NAME,messages:[{role:'system',content:instruction},{role:'user',content:context}],max_tokens:3000,response_format:{type:'json_object'},...(config.MODEL_REASONING_EFFORT?{reasoning_effort:config.MODEL_REASONING_EFFORT}:{})}),signal:AbortSignal.timeout(60000)});
-    const body=await response.json() as {choices?:{message?:{content?:string}}[]};
+    let response:Response;
+    try {
+      // Workers supports manual/follow, not redirect:error. Never forward the
+      // provider credential to a redirect destination.
+      response=await fetch(url,{method:'POST',redirect:'manual',headers:{Authorization:`Bearer ${config.MODEL_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.MODEL_NAME,messages:[{role:'system',content:instruction},{role:'user',content:context}],max_tokens:3000,response_format:{type:'json_object'},...(config.MODEL_REASONING_EFFORT?{reasoning_effort:config.MODEL_REASONING_EFFORT}:{})}),signal:AbortSignal.timeout(60000)});
+    }catch(error){
+      const timeout=error instanceof Error && ['TimeoutError','AbortError'].includes(error.name);
+      throw new AppError(timeout?'The model service timed out. No research tool was executed.':'The model service could not be reached. No research tool was executed.',timeout?504:502,timeout?'model_timeout':'model_transport_failed');
+    }
+    responseStatus=response.status;
+    if(response.status>=300 && response.status<400)throw new AppError('The model service returned a redirect. No credential was forwarded and no research tool was executed.',502,'model_redirect');
+    let body:{choices?:{message?:{content?:string}}[]};
+    try{body=await response.json();}catch{throw new AppError('The model service returned an unreadable response. No research tool was executed.',502,'model_response');}
     await endReceipt(owner,file.id,'model',receipt,response.status,body);completed=true;
     if(!response.ok)throw new AppError(`The model service could not complete this step (${response.status}).`,502,'model_request_failed');
     const content=body.choices?.[0]?.message?.content;if(!content)throw new AppError('The model returned no usable action.',502,'model_response');
@@ -68,6 +79,6 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
     const outcome=choice.tool==='resolve'?await resolveClue(owner,file,choice.clueId):choice.tool==='discover'?await discover(owner,file,choice.clueIds):await inspect(owner,file,choice.leadId,choice.url);
     file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'research',title:outcome.title,detail:outcome.detail,receiptId:outcome.receipt});
     if(file.agent.steps>=12){file.agent.status='stopped';file.agent.reason='Research limit reached. Review the collected sources and choose the next enquiry.';}
-  }catch(error){if(!completed)await endReceipt(owner,file.id,'model',receipt,0,{error:'Model step failed or timed out.'});file.agent.status='error';throw error;}
+  }catch(error){if(!completed)await endReceipt(owner,file.id,'model',receipt,responseStatus,{error:error instanceof AppError?error.message:'Model step failed or timed out.'});file.agent.status='error';throw error;}
   finally{await releaseRequests(reservation);}
 }
