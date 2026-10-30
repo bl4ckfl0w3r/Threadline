@@ -1,4 +1,5 @@
 'use client';
+import {checksScore} from '@/components/threadline/demo-scoreboard';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowClockwise, ArrowLeft, ArrowRight, ArrowUpRight, Check, Minus, Plus, X } from '@/components/threadline/icons';
 import { Brand } from '@/components/threadline/brand';
@@ -96,15 +97,7 @@ function Inspections({ data }: { data: DemoDataV2 }) {
 
 /** Checks until the record, one line per order: counts from the recorded runs; the unrun Qloo order shows its position only. */
 function Scoreboard({ data }: { data: DemoDataV2 }) {
-  const [listed, qloo] = data.arms, target = data.highlightedLeadId;
-  const reached = (arm: typeof listed) => arm.inspections.find(i => i.leadId === target && i.found === 'match')?.order;
-  const listedAt = reached(listed), qlooAt = reached(qloo);
-  const controlAt = data.control.order.findIndex(o => o.leadId === target) + 1;
-  const rows = [
-    { label: 'Listed order', value: listedAt ? `Check ${listedAt}` : 'Not reached', note: listedAt ? 'Recorded run' : `In ${data.inspectionBudget} checks · recorded run` },
-    { label: 'Qloo, no favourites', value: controlAt > 0 && controlAt <= data.inspectionBudget ? `Check ${controlAt}` : 'Not reached', note: 'Order only · not run' },
-    { label: 'Qloo, with favourites', value: qlooAt ? `Check ${qlooAt}` : 'Not reached', note: 'Recorded run' },
-  ];
+  const target=data.highlightedLeadId,rows=checksScore(data);
   return <dl className="checks-score" aria-label={`Checks until the ${siteName(data, target)} record`}>
     {rows.map(r => <div key={r.label}><dt>{r.label}</dt><dd><strong>{r.value}</strong><span>{r.note}</span></dd></div>)}
   </dl>;

@@ -1,20 +1,26 @@
-// Groups the activity log into the agent's current run for the Research agent timeline.
-import type { CaseFile } from '../../lib/contracts.ts';
+import type {CaseFile,CaseUsage,AgentRunSummary} from '../../lib/contracts.ts';
 
-export type AgentStep={id:string;tool:string;reason:string;result?:{title:string;detail:string}};
-type RunActivity=CaseFile['activityLog'][number]&{runId?:string};
-
-/** The agent's steps in its current run. With server run IDs, exactly that run; on older cases, the last `agent.steps` decisions and the result logged straight after each. */
+export type AgentStep={id:string;step?:number;tool:string;reason:string;result?:{title:string;detail:string};error?:string};
+/** Only explicit run/step metadata can associate a tool outcome with a decision. */
 export function agentSteps(f:CaseFile):AgentStep[] {
-  const log=f.activityLog as RunActivity[], runId=(f.agent as {runId?:string}).runId;
-  let entries=log;
-  if(runId)entries=log.filter(a=>a.runId===runId);
-  else{if(!f.agent.steps)return [];let seen=0,start=log.length;for(let i=log.length-1;i>=0&&seen<f.agent.steps;i--)if(log[i].kind==='agent'){seen++;start=i;}entries=log.slice(start);}
-  const steps:AgentStep[]=[];let previous:RunActivity|undefined;
-  for(const a of entries){
-    if(a.kind==='agent')steps.push({id:a.id,tool:a.title.replace(/^Agent chose /,''),reason:a.detail});
-    else if(a.kind==='research'&&previous?.kind==='agent'&&steps.length&&!steps.at(-1)!.result)steps.at(-1)!.result={title:a.title,detail:a.detail};
-    previous=a;
+  if(!f.agent.runId)return f.activityLog.filter(a=>a.kind==='agent').slice(-12).map(a=>({id:a.id,tool:a.title.replace(/^Agent chose /,''),reason:a.detail}));
+  const steps:AgentStep[]=[];
+  for(const a of f.activityLog.filter(a=>a.runId===f.agent.runId)){
+    if(a.kind==='agent')steps.push({id:a.id,step:a.step,tool:a.title.replace(/^Agent chose /,''),reason:a.detail});
+    else if(a.kind==='research'||a.kind==='error'){
+      let target=a.step===undefined?undefined:steps.find(s=>s.step===a.step);
+      if(!target&&a.kind==='error'){target={id:a.id,step:a.step,tool:'model',reason:'The step did not produce a usable result.'};steps.push(target);}
+      if(target){if(a.kind==='error')target.error=a.detail;else target.result={title:a.title,detail:a.detail};}
+    }
   }
   return steps;
+}
+export function hasNewEnquiryResponse(f:CaseFile):boolean {
+  const reviewed=new Set(f.agent.reviewedResponseIds||[]);
+  return f.agent.status==='complete'&&[...(f.enquiry?.responses||[]),...(f.enquiry?.response?[f.enquiry.response]:[])].some(r=>!!r.id&&!!r.passage.trim()&&(!r.answeredQuestion||r.answeredQuestion===f.enquiry?.question)&&!reviewed.has(r.id));
+}
+export function requestCounts(usage:CaseUsage|AgentRunSummary['usage']):string {
+  const source='sourceAttempts' in usage?`, ${usage.sourceAttempts} source`:'';
+  const failed=usage.modelFailed+usage.qlooFailed+('sourceFailed' in usage?usage.sourceFailed:0);
+  return `${usage.modelAttempts} model, ${usage.qlooAttempts} Qloo${source}${failed?` (${failed} failed or pending provider results)`:''}`;
 }

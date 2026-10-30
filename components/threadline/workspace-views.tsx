@@ -6,31 +6,33 @@ import type { CaseFile, Clue, EnquiryResponse } from '../../lib/contracts.ts';
 import { controlFor, getEnquiryIdentity, getEnquiryIdentityJson, providerRanks, whatTheReferencesChanged } from '../../lib/domain.ts';
 import { humanDate, humanRange, placeHint } from './format.ts';
 import { changeSentence, matchesInputs } from './reference-change.ts';
-import { agentSteps } from './agent-steps.ts';
+import { agentSteps,hasNewEnquiryResponse,requestCounts } from './agent-steps.ts';
 
 const relationLabel={chose_place:'They chose the place',observed_at_place:'Seen or heard at the place',personal_interests:'Personal interests only'} as const;
 
-const toolLabel:Record<string,string>={resolve:'Look up a reference in Qloo',discover:'Search Qloo for places',inspect:'Read a public source',ask:'Ask you',finish:'Draft the next enquiry'};
+const toolLabel:Record<string,string>={resolve:'Look up a reference in Qloo',discover:'Search Qloo for places',inspect:'Read a public source',ask:'Ask you',finish:'Draft the next enquiry',run_control:'Complete the Qloo comparison',model:'Model step'};
 const applicability={
   chose_place:'They chose the place, so taste may help order the checks. Nothing shows it drove the booking.',
-  observed_at_place:'The references were seen or heard at the place, so a taste-based order can help pick which records to check first.',
+  observed_at_place:'The references were seen or heard at the place. Their associations may suggest an order for checking records; they do not identify the place.',
   personal_interests:'Personal interests only: taste is a weak signal for which place. The agent should say so before spending a Qloo request.',
 } as const;
 export function AgentPanel({w}:{w:WorkspaceState}) {
-  const f=w.file!, model=!!w.services?.model, running=w.running.current, steps=agentSteps(f), status=f.agent.status;
-  const asked=status==='stopped'&&steps.at(-1)?.tool==='ask';
-  const state=running?`Step ${Math.max(f.agent.steps,1)} of 12`:status==='complete'?'Enquiry drafted':asked?'Needs your answer':status==='stopped'?'Stopped':status==='error'?'Last step failed':model?'Ready':'Not connected';
-  const fresh=status==='idle'||status==='working';
+  const f=w.file!,model=!!w.services?.model,running=w.running.current,steps=agentSteps(f),status=f.agent.status;
+  const asked=status==='stopped'&&f.agent.stopReason==='ask';
+  const state=running?`Step ${Math.min(f.agent.steps+1,12)} of 12`:status==='complete'?'Enquiry drafted':asked?'Needs your answer':status==='stopped'?'Stopped':status==='error'?'Last step failed':model?'Ready':'Not connected';
+  const fresh=status==='idle'||status==='working',canContinue=hasNewEnquiryResponse(f);
+  const run=w.agentRuns?.find(r=>r.runId===f.agent.runId);
   return <details className="research-drawer" open={running||!fresh||undefined}><summary><GitBranch size={18}/><span>Research agent</span><span>{state}</span><Plus size={18}/></summary>
-    <div className="research-content"><p>{!model?'Connect a model on the server to enable agent research. Manual research is available.':asked?f.agent.reason:status==='error'?'The last step didn’t complete. The steps above it and their receipts are kept.':status==='stopped'?f.agent.reason:'The agent picks one tool at a time (a Qloo search, a source to read, a question for you) and stops at a drafted enquiry.'}</p>
-      {running?<button className="button secondary" onClick={()=>{w.running.current=false;w.setNotice('Stopping after the current step.');}}><Stop size={17}/>Stop after step</button>:<button className="button primary" disabled={w.disabled||!model} onClick={w.runAgent}>{fresh?'Investigate':'Start a new investigation'} <ArrowRight size={17}/></button>}</div>
-    {(steps.length>0||running)&&<ol className="agent-timeline" aria-label="Agent steps in this run">
-      <li className="agent-step applicability"><span className="step-number">0</span><div><strong>Can taste help here?</strong><p>{f.referenceRelation?applicability[f.referenceRelation]:'How the references relate to the place isn’t stated on the case, so a taste-based order carries little weight.'}</p><small>From the case</small></div></li>
-      {steps.map((s,i)=><li key={s.id} className={`agent-step ${s.tool}`}><span className="step-number">{i+1}</span><div><strong>{toolLabel[s.tool]||s.tool}</strong><p>{s.tool==='ask'&&asked&&i===steps.length-1?f.agent.reason:s.reason}</p>{s.result&&<p className="step-result"><span>{s.result.title}</span> {s.result.detail}</p>}</div></li>)}
-      {running&&<li className="agent-step pending" aria-live="polite"><span className="step-number">{steps.length+1}</span><div><strong>Choosing the next step</strong></div></li>}
+    <div className="research-content"><p>{!model?'Connect a model on the server to enable agent research. Manual research is available.':asked?f.agent.pendingQuestion?.question||f.agent.reason:status==='error'?'The last step didn’t complete. Earlier findings and receipts are kept.':status==='stopped'?f.agent.reason:status==='complete'?canContinue?'A new response is recorded. Continue from what it establishes.':'Review the drafted enquiry and record a response before continuing.':'The agent picks one tool at a time and stops at a question or drafted enquiry.'}</p>
+      <div className="source-commands">{running?<button className="button secondary" onClick={()=>{w.running.current=false;w.setNotice('Stopping after the current step.');}}><Stop size={17}/>Stop after step</button>:fresh?<button className="button primary" disabled={w.disabled||!model} onClick={()=>w.runAgent()}>{status==='working'?'Resume investigation':'Investigate'} <ArrowRight size={17}/></button>:status==='complete'?<button className="button primary" disabled={w.disabled||(canContinue&&!model)} onClick={()=>canContinue?w.continueAgent():w.goToStep('enquiry')}>{canContinue?'Continue investigation':'Open the drafted enquiry'} <ArrowRight size={17}/></button>:null}
+      {!running&&!fresh&&<button className="button secondary" disabled={w.disabled||!model} onClick={w.restartAgent}>Start a new investigation <ArrowRight size={17}/></button>}</div></div>
+    {(steps.length>0||running)&&<ol className="agent-timeline" aria-label={f.agent.runId?'Agent steps in this run':'Recent agent decisions — run boundaries unknown'}>
+      <li className="agent-step applicability"><span className="step-number">—</span><div><strong>Can taste help here?</strong><p>{f.referenceRelation?applicability[f.referenceRelation]:'How the references relate to the place isn’t stated, so a taste-based order carries little weight.'}</p><small>Current case context · not an executed agent step</small></div></li>
+      {!f.agent.runId&&<li className="agent-step"><span className="step-number">—</span><div><strong>Legacy history · not grouped into runs</strong><p>These recent decisions have no recorded run boundaries. Manual results are not assigned to them.</p></div></li>}
+      {steps.map(s=><li key={s.id} className={`agent-step ${s.tool}`}><span className="step-number">{s.step??'—'}</span><div><strong>{toolLabel[s.tool]||s.tool}</strong><p>{s.reason}</p>{s.result&&<p className="step-result"><span>{s.result.title}</span> {s.result.detail}</p>}{s.error&&<p className="step-result" role="status"><span>Step needs attention.</span> {s.error}</p>}{run?.steps.find(row=>row.step===s.step)&&<small>Attempts: {requestCounts(run.steps.find(row=>row.step===s.step)!.usage)}</small>}</div></li>)}
+      {running&&status!=='complete'&&status!=='stopped'&&<li className="agent-step pending" aria-live="polite"><span className="step-number">{Math.min(f.agent.steps+1,12)}</span><div><strong>Choosing the next step</strong></div></li>}
     </ol>}
-    {status==='complete'&&!running&&<button className="text-button" onClick={()=>w.goToStep('enquiry')}>Open the drafted enquiry <ArrowRight size={17}/></button>}
-    {w.usage&&(steps.length>0||running)&&<p className="agent-usage">Requests in this case so far: {w.usage.modelAttempts} model, {w.usage.qlooAttempts} Qloo{w.usage.qlooFailed+w.usage.modelFailed?` (${w.usage.qlooFailed+w.usage.modelFailed} failed)`:''}. Counts are for the whole case, not just this run.</p>}
+    {run?<p className="agent-usage">Attempts in this run: {requestCounts(run.usage)}. Source counts are retrieval attempts, not redirect hops.</p>:w.usage&&(steps.length>0||running)?<p className="agent-usage">Attempts in this case so far: {requestCounts(w.usage)}. Counts are for the whole case; run totals are unavailable.</p>:null}
   </details>;
 }
 

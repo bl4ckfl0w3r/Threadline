@@ -984,7 +984,7 @@ test('usage refresh for an earlier case cannot overwrite the newly opened case',
   const path=String(url);
   if(path==='/api/status')return Response.json({qloo:true,model:false,storage:true,signedIn:true});
   if(path==='/api/cases')return Response.json({cases:[a,b]});
-  if(path==='/api/cases/usage-b')return Response.json({case:b,usage:counts(7)});
+  if(path==='/api/cases/usage-b')return Response.json({case:b,usage:counts(7),agentRuns:[{runId:'run-b',usage:counts(7),steps:[]}]});
   if(path==='/api/cases/usage-a/actions'){pending=true;return Response.json({case:{...a,revision:1}});}
   if(path==='/api/cases/usage-a')return pending?delayed:Response.json({case:a,usage:counts(0)});
   throw new Error(`Unexpected request ${path} ${options?.method||'GET'}`);
@@ -995,8 +995,36 @@ test('usage refresh for an earlier case cannot overwrite the newly opened case',
   await run(()=>hook.current.perform({type:'discover',clueIds:[]},'Researching'));
   await run(()=>hook.current.switchCase(b.id));
   assert.equal(hook.current.usage.qlooAttempts,7);
-  await run(()=>{resolveUsage!(Response.json({case:a,usage:counts(99)}));});
-  assert.equal(hook.current.file.id,b.id);assert.equal(hook.current.usage.qlooAttempts,7);
+  await run(()=>{resolveUsage!(Response.json({case:a,usage:counts(99),agentRuns:[{runId:'run-a',usage:counts(99),steps:[]}]}));});
+  assert.equal(hook.current.file.id,b.id);assert.equal(hook.current.usage.qlooAttempts,7);assert.equal(hook.current.agentRuns[0].runId,'run-b');
  }finally{globalThis.fetch=originalFetch;}
 });
 
+
+test('workspace agent continues only explicitly, preserves working runs and does not turn a refusal into a revision conflict',async()=>{
+ const {continueAgentRun,startAgentRun}=await import('../lib/agent-runs.ts');const originalFetch=globalThis.fetch;
+ let server=blankCase('agent-hook');server.leads=[{id:'a',name:'Venue',address:'Here',tags:[],introducedBy:'input'}];server.enquiry=draftEnquiry(server,server.leads[0]);server.enquiry.response={id:'reply',respondent:'Records desk',receivedAt:'2026-10-30',passage:'Receiving is documented, onward contents are unknown.',outcomeBranch:'confirming'};server.agent.status='complete';
+ const actions:string[]=[];let deny=false;
+ const usage={modelAttempts:1,modelFailed:0,qlooAttempts:2,qlooFailed:0,sourceAttempts:0,sourceFailed:0};
+ localStorage.clear();globalThis.fetch=async(url,options)=>{
+  const path=String(url);
+  if(path==='/api/status')return Response.json({model:true,qloo:true,storage:true,signedIn:true});
+  if(path==='/api/cases')return Response.json({cases:[server]});
+  if(path.endsWith('/actions')){
+   const {action}=JSON.parse(String(options?.body));actions.push(action.type);
+   if(action.type==='agent_continue'){if(deny)return Response.json({error:'Record a new response first.',code:'agent_continue_unavailable',case:server},{status:409});continueAgentRun(server);}
+   else if(action.type==='agent_reset')startAgentRun(server);
+   else if(action.type==='agent_step'){server.agent.steps++;server.agent.status='stopped';server.agent.stopReason='ask';server.agent.reason='Which manifest is available?';}
+   server.revision++;return Response.json({case:structuredClone(server)});
+  }
+  if(path==='/api/cases/agent-hook')return Response.json({case:structuredClone(server),usage,agentRuns:server.agent.runId?[{runId:server.agent.runId,usage,steps:[{step:server.agent.steps,usage}]}]:[]});
+  throw new Error('Unexpected request '+path);
+ };
+ try{
+  const {hook,run}=renderWorkspaceHook();await run();
+  await run(()=>hook.current.runAgent());assert.deepEqual(actions,[]);assert.match(hook.current.error,/explicitly start/);
+  await run(()=>hook.current.continueAgent());assert.deepEqual(actions,['agent_continue','agent_step']);assert.deepEqual(server.agent.reviewedResponseIds,['reply']);assert.equal(hook.current.agentRuns[0].usage.qlooAttempts,2);assert.equal(server.enquiry.response.id,'reply');
+  actions.length=0;server.agent.status='working';const runId=server.agent.runId;await run(()=>hook.current.switchCase(server.id));await run(()=>hook.current.runAgent());assert.deepEqual(actions,['agent_step']);assert.equal(server.agent.runId,runId);
+  actions.length=0;server.agent.status='complete';deny=true;await run(()=>hook.current.switchCase(server.id));await run(()=>hook.current.continueAgent());assert.deepEqual(actions,['agent_continue']);assert.equal(hook.current.recoveryState,null);assert.match(hook.current.error,/new response/);
+ }finally{globalThis.fetch=originalFetch;}
+});
