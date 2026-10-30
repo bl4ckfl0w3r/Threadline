@@ -50,7 +50,7 @@ Model calls have server-enforced limits of 24 attempts per browser identity per 
 
 Keep credentials in server-side configuration and preserve the private-file exclusions in `.gitignore`. Review reachable Git history as well as the current files before publishing. Private repository visibility does not make it appropriate to commit credentials, local case data or research records.
 
-Third-party notices remain alongside their vendored sources. An application-wide open-source licence has not yet been selected.
+Third-party notices remain alongside their vendored sources. The application is released under the MIT License; see `LICENSE`.
 
 ## Checks
 
