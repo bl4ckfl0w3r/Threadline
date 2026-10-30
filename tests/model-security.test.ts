@@ -70,7 +70,7 @@ const hooks=registerHooks({resolve(specifier,context,next){
  if(context.parentURL?.endsWith('/server/agent.ts')){
   if(specifier==='./runtime')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent("export class AppError extends Error{constructor(message,status=400,code='invalid_request'){super(message);this.status=status;this.code=code;}}export const bindings=()=>globalThis.__modelSecurityTest.bindings();")};
   if(specifier==='./store')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent(['beginReceipt','endReceipt','reserveRequests','releaseRequests'].map(name=>`export const ${name}=(...args)=>globalThis.__modelSecurityTest.${name}(...args);`).join('\n'))};
-  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=resolveClue;export const inspect=resolveClue;')};
+  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=resolveClue;export const runControl=resolveClue;export const inspect=resolveClue;')};
   if(specifier==='@/lib/domain')return next('../lib/domain.ts',context);
   if(specifier==='./model-context')return next('./model-context.ts',context);
   if(specifier==='./usage-limits')return next('./usage-limits.ts',context);
@@ -87,7 +87,7 @@ test('real agent request uses server-only Gemini settings and bounded generation
   return Response.json({choices:[{message:{content:JSON.stringify({tool:'ask',reason:'The case has no dates.',question:'What date did the reported incident occur?'})}}]});
  };
  const file=blankCase('test');const request=new Request('https://threadline.test/api/cases/test/actions',{method:'POST',headers:{'CF-Connecting-IP':'192.0.2.8'},body:JSON.stringify({MODEL_API_KEY:'attacker',MODEL_BASE_URL:'https://attacker.test'})});
- await agentStep('owner',file,request);assert.equal(fetches,1);assert.equal(attempts,1);assert.equal(results.length,1);assert.match(String(reservations[0][3]),/^[a-f0-9]{64}$/);assert.equal(file.agent.status,'stopped');assert.doesNotMatch(JSON.stringify(file),/private-test-provider-key/);
+ await agentStep('owner',file,request);assert.equal(fetches,1);assert.equal(attempts,1);assert.equal(results.length,1);assert.match(String(reservations[0][3]),/^[a-f0-9]{64}$/);assert.equal(file.agent.status,'stopped');assert.equal(file.agent.stopReason,'ask');assert.equal(file.agent.pendingQuestion?.question,'What date did the reported incident occur?');assert.ok(file.agent.runId);assert.equal(file.activityLog[0].runId,file.agent.runId);assert.equal(file.activityLog[0].step,1);assert.match(file.activityLog[0].detail,/What date/);assert.doesNotMatch(JSON.stringify(file),/private-test-provider-key/);
 });
 test('oversized context and exhausted allowances make no model request',async()=>{
  const before=fetches;allowed=false;await assert.rejects(agentStep('owner',blankCase('test')),/allowance/);assert.equal(fetches,before);

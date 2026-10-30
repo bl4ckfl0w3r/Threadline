@@ -79,7 +79,7 @@ export const actionSchema = z.discriminatedUnion('type', [
     summary: z.string().trim().max(1000).optional(),
     revisedActionText: z.string().trim().max(3000).optional(),
   }),
-  z.object({type:z.literal('agent_step')}),z.object({type:z.literal('agent_reset')}),
+  z.object({type:z.literal('agent_step')}),z.object({type:z.literal('agent_reset')}),z.object({type:z.literal('agent_continue')}),
 ]);
 
 export function getEnquiryIdentity(enquiry?: Enquiry): EnquiryIdentity | null {

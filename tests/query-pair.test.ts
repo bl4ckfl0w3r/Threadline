@@ -5,12 +5,12 @@ import { blankCase, whatTheReferencesChanged } from '../lib/domain.ts';
 import type { CaseFile } from '../lib/contracts.ts';
 
 // Runtime boundaries are replaced before loading qloo; no network or Cloudflare binding is used.
-let reservations:number[]=[],attempts:unknown[]=[],results:unknown[]=[],released:number[]=[],allow=true;
+let contexts:unknown[]=[],reservations:number[]=[],attempts:unknown[]=[],results:unknown[]=[],released:number[]=[],allow=true;
 const state={
  bindings:()=>({QLOO_API_KEY:'test-key'}),
  reserveRequests:async (_owner:string,_provider:string,count:number)=>{if(!allow)throw new Error('Pair allowance exceeded');reservations.push(count);return {remaining:count,buckets:[]};},
  releaseRequests:async (r:{remaining:number})=>{released.push(r.remaining);r.remaining=0;},
- beginReceipt:async (_owner:string,_caseId:string,_provider:string,request:unknown,r:{remaining:number})=>{r.remaining--;attempts.push(request);return `receipt-${attempts.length}`;},
+ beginReceipt:async (_owner:string,_caseId:string,_provider:string,request:unknown,r:{remaining:number},context?:unknown)=>{r.remaining--;contexts.push(context);attempts.push(request);return `receipt-${attempts.length}`;},
  endReceipt:async (...args:unknown[])=>{results.push(args);},
 };
 (globalThis as any).__threadlineQlooTest=state;
@@ -24,7 +24,7 @@ const hooks=registerHooks({resolve(specifier,context,next){
 }});
 const {discover,runControl}=await import('../server/qloo.ts');hooks.deregister();
 function file():CaseFile {const f=blankCase('case');f.category='all_places';f.clues=[{id:'film',label:'Film',kind:'movie',provenance:'supplied_interest',enabled:true,entity:{id:'entity-film',name:'Film',kind:'movie'}}];return f;}
-function reset(){reservations=[];attempts=[];results=[];released=[];allow=true;}
+function reset(){contexts=[];reservations=[];attempts=[];results=[];released=[];allow=true;}
 const originalFetch=globalThis.fetch;
 function responses(statuses:number[]){globalThis.fetch=async ()=>{const status=statuses.shift();assert.ok(status,'Unexpected provider call');return new Response(JSON.stringify(status===200?{results:{entities:[{entity_id:'venue',name:'Venue',query:{affinity:0.5}}]}}:{error:'provider failure'}),{status});};}
 
@@ -78,5 +78,11 @@ test('live query rows stay small while full receipts and provider positions surv
  await discover('owner',f,[]);
  assert.equal(JSON.stringify(f.queries[0]),oldDocument,'New searches leave legacy documents intact');
  assert.equal(results.length,2);
+});
+test('agent metadata follows both paired requests and a control retry, while manual requests stay ungrouped',async()=>{
+ reset();responses([200,500]);const f=file(),run={runId:'10000000-0000-4000-8000-000000000001',step:1};
+ await assert.rejects(discover('owner',f,['film'],run));assert.deepEqual(contexts,[run,run]);
+ responses([200]);const retry={...run,step:2};await runControl('owner',f,f.queries[0].id,retry);assert.deepEqual(contexts,[run,run,retry]);
+ responses([200]);await discover('owner',f,[]);assert.equal(contexts.at(-1),undefined);
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as any).__threadlineQlooTest;});
