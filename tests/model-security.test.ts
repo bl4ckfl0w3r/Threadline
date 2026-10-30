@@ -65,13 +65,13 @@ test('model drafts cannot invent recorded replies or discard answered enquiries'
 
 const config={MODEL_API_KEY:'private-test-provider-key',MODEL_BASE_URL:'https://generativelanguage.googleapis.com/v1beta/openai',MODEL_NAME:'gemini-3.8-flash',MODEL_REASONING_EFFORT:'medium',SESSION_SIGNING_KEY:'s'.repeat(64)};
 let allowed=true,reservations:unknown[][]=[],attempts=0,results:unknown[][]=[],fetches=0;
-const state={bindings:()=>config,reserveRequests:async(...args:unknown[])=>{if(!allowed)throw new Error('Model allowance exhausted');reservations.push(args);return {remaining:1,buckets:[],pendingBucket:'pending'};},releaseRequests:async()=>{},beginReceipt:async(...args:unknown[])=>{attempts++;(args[4] as {remaining:number}).remaining--;return 'model-receipt';},endReceipt:async(...args:unknown[])=>{results.push(args);}};
+const state={bindings:()=>config,reserveRequests:async(...args:unknown[])=>{if(!allowed)throw new Error('Model allowance exhausted');reservations.push(args);return {remaining:1,buckets:[],pendingBucket:'pending'};},releaseRequests:async()=>{},beginReceipt:async(...args:unknown[])=>{attempts++;(args[4] as {remaining:number}).remaining--;return 'model-receipt';},endReceipt:async(...args:unknown[])=>{results.push(args);},inspect:async(..._args:unknown[]):Promise<{title:string;detail:string;receipt?:string}>=>{throw new Error('Unexpected tool');}};
 (globalThis as unknown as {__modelSecurityTest:typeof state}).__modelSecurityTest=state;
 const hooks=registerHooks({resolve(specifier,context,next){
  if(context.parentURL?.endsWith('/server/agent.ts')){
   if(specifier==='./runtime')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent("export class AppError extends Error{constructor(message,status=400,code='invalid_request'){super(message);this.status=status;this.code=code;}}export const bindings=()=>globalThis.__modelSecurityTest.bindings();")};
   if(specifier==='./store')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent(['beginReceipt','endReceipt','reserveRequests','releaseRequests'].map(name=>`export const ${name}=(...args)=>globalThis.__modelSecurityTest.${name}(...args);`).join('\n'))};
-  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=resolveClue;export const runControl=resolveClue;export const inspect=resolveClue;')};
+  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=resolveClue;export const runControl=resolveClue;export const inspect=(...args)=>globalThis.__modelSecurityTest.inspect(...args);')};
   if(specifier==='@/lib/domain')return next('../lib/domain.ts',context);
   if(specifier==='./model-context')return next('./model-context.ts',context);
   if(specifier==='./usage-limits')return next('./usage-limits.ts',context);
@@ -84,7 +84,7 @@ test('real agent request uses server-only Gemini settings and bounded generation
  allowed=true;reservations=[];attempts=0;results=[];fetches=0;
  globalThis.fetch=async(url,options)=>{
   fetches++;assert.equal(String(url),config.MODEL_BASE_URL+'/chat/completions');assert.equal(new Headers(options?.headers).get('Authorization'),'Bearer '+config.MODEL_API_KEY);assert.equal(options?.redirect,'manual');
-  const text=String(options?.body),body=JSON.parse(text);assert.equal(body.model,'gemini-3.8-flash');assert.equal(body.reasoning_effort,'medium');assert.equal(body.max_tokens,3000);assert.doesNotMatch(text,/private-test-provider-key/);
+  const text=String(options?.body),body=JSON.parse(text);assert.equal(body.model,'gemini-3.8-flash');assert.equal(body.reasoning_effort,'medium');assert.equal(body.max_tokens,8000);assert.doesNotMatch(text,/private-test-provider-key/);
   return Response.json({choices:[{message:{content:JSON.stringify({tool:'ask',reason:'The case has no dates.',question:'What date did the reported incident occur?'})}}]});
  };
  const file=blankCase('test');const request=new Request('https://threadline.test/api/cases/test/actions',{method:'POST',headers:{'CF-Connecting-IP':'192.0.2.8'},body:JSON.stringify({MODEL_API_KEY:'attacker',MODEL_BASE_URL:'https://attacker.test'})});
@@ -128,5 +128,58 @@ test('a continued real agent step reads the recorded answer and archives it when
  const reply={id:'actual-reply',respondent:'Records desk',receivedAt:'2026-10-30',passage:'The ledger identifies the item but gives no consignment contents.',outcomeBranch:'confirming' as const,unresolved:'Obtain the contents manifest.'};file.enquiry.response=reply;file.agent.status='complete';continueAgentRun(file);const runId=file.agent.runId;
  globalThis.fetch=async(_url,options)=>{const body=JSON.parse(String(options?.body)),context=JSON.parse(body.messages[1].content);assert.equal(context.enquiry.response.passage,reply.passage);assert.match(body.messages[0].content,/actual passage/);return Response.json({choices:[{message:{content:JSON.stringify({tool:'finish',reason:'The receiving entry leaves the consignment unresolved.',enquiry:{...draftEnquiry(file,file.leads[1]),question:'Which consignment contents manifest lists this item?'}})}}]});};
  await agentStep('owner',file);assert.equal(file.agent.runId,runId);assert.equal(file.agent.status,'complete');assert.equal(file.agent.steps,1);assert.equal(file.enquiry.leadId,'b');assert.equal(file.enquiry.history![0].enquiry.response!.id,reply.id);assert.equal(file.enquiry.response,undefined);
+});
+const modelReply=(content:string,finish_reason='stop')=>Response.json({choices:[{finish_reason,message:{content}}]});
+const finishing=(file:ReturnType<typeof blankCase>,draft:string)=>JSON.stringify({tool:'finish',reason:'The worksheet leaves the receipt open.',enquiry:{...draftEnquiry(file,file.leads[0]),draft}});
+const leadCase=(id:string)=>{const file=blankCase(id);file.leads=[{id:'a',name:'Libreria',address:'Here',website:'https://libreria.example.org/',tags:[],introducedBy:'qloo'}];return file;};
+test('a reply cut off at the length limit is retried once with lower reasoning and its own receipt',async()=>{
+ allowed=true;const attemptsBefore=attempts,resultsBefore=results.length,bodies:{reasoning_effort:string;messages:unknown[]}[]=[];
+ globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(String(options?.body)));return bodies.length===1?modelReply('{"tool":"ask","reason":"The ca','length'):modelReply(JSON.stringify({tool:'ask',reason:'Dates are missing.',question:'What date?'}));};
+ const file=blankCase('cut-off');await agentStep('owner',file);
+ assert.equal(bodies.length,2);assert.equal(bodies[0].reasoning_effort,'medium');assert.equal(bodies[1].reasoning_effort,'low');assert.equal(bodies[1].messages.length,3);assert.equal(attempts,attemptsBefore+2);assert.equal(results.length,resultsBefore+2);assert.equal(file.agent.steps,1);assert.equal(file.agent.status,'stopped');assert.equal(file.agent.pendingQuestion?.question,'What date?');
+});
+test('two unusable replies stop the step and name the cut-off without running a tool',async()=>{
+ allowed=true;let calls=0;globalThis.fetch=async()=>{calls++;return modelReply('{"tool":"ask","rea','length');};
+ const file=blankCase('cut-off-twice');
+ await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='model_response'&&/cut off/.test(error.message));
+ assert.equal(calls,2);assert.equal(file.agent.status,'error');assert.equal(file.activityLog.length,0);
+});
+test('a fenced model reply is accepted without spending a retry',async()=>{
+ allowed=true;let calls=0;globalThis.fetch=async()=>{calls++;return modelReply('```json\n{"tool":"ask","reason":"Dates are missing.","question":"What date?"}\n```');};
+ const file=blankCase('fenced');await agentStep('owner',file);assert.equal(calls,1);assert.equal(file.agent.status,'stopped');
+});
+test('a retry the allowance cannot cover reports the first failure and makes no second request',async()=>{
+ allowed=true;let calls=0;globalThis.fetch=async()=>{calls++;allowed=false;return modelReply('not json');};
+ const file=blankCase('no-allowance');
+ try{await assert.rejects(agentStep('owner',file),/unreadable action/);assert.equal(calls,1);}finally{allowed=true;}
+});
+test('an overclaiming draft is sent back once and a corrected draft is kept',async()=>{
+ allowed=true;const bodies:{messages:{content:string}[]}[]=[];const file=leadCase('overclaim');const fixed='Could you confirm whether a reading took place at your venue on 15 October? A supplied worksheet lists RP-140, not RP-104.';
+ globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(String(options?.body)));return modelReply(finishing(file,bodies.length===1?'I am writing about a reading hosted at your venue on 15 October, and wondered if you hold a record.':fixed));};
+ await agentStep('owner',file);assert.equal(bodies.length,2);assert.match(bodies[1].messages[2].content,/hosted at your venue/);assert.equal(file.enquiry!.draft,fixed);assert.equal(file.agent.status,'complete');
+});
+test('a draft that overclaims twice is replaced by the neutral draft and says so',async()=>{
+ allowed=true;let calls=0;const file=leadCase('overclaim-twice');
+ globalThis.fetch=async()=>{calls++;return modelReply(finishing(file,'Your staff received portfolio RP-104 from our courier.'));};
+ await agentStep('owner',file);assert.equal(calls,2);assert.doesNotMatch(file.enquiry!.draft,/received/);assert.match(file.enquiry!.draft,/remains unresolved/);assert.equal(file.agent.status,'complete');assert.match(file.activityLog.at(-1)!.detail,/neutral draft/);
+});
+test('the agent may read a place website with or without www, but not an unrelated host',async()=>{
+ allowed=true;const read:unknown[][]=[];state.inspect=async(...args)=>{read.push(args);return {title:'Source captured',detail:'Page',receipt:'r'};};
+ const reply=(url:string)=>modelReply(JSON.stringify({tool:'inspect',leadId:'a',url,reason:'Check listed events.'}));
+ const file=leadCase('lead-host');globalThis.fetch=async()=>reply('https://www.libreria.example.org/events');
+ await agentStep('owner',file);assert.equal(read.length,1);assert.equal(file.agent.status,'working');
+ const other=leadCase('other-host');globalThis.fetch=async()=>reply('https://elsewhere.example.net/');
+ await assert.rejects(agentStep('owner',other),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='source_reference_invalid');assert.equal(read.length,1);
+});
+test('a site refusing to be read is logged, the run continues, and the same URL is not retried',async()=>{
+ allowed=true;state.inspect=async()=>{throw Object.assign(new Error('This source could not be read.'),{code:'source_unavailable'});};
+ const file=leadCase('refused'),url='https://libreria.example.org/events';globalThis.fetch=async()=>modelReply(JSON.stringify({tool:'inspect',leadId:'a',url,reason:'Check listed events.'}));
+ await agentStep('owner',file);assert.equal(file.agent.status,'working');assert.equal(file.activityLog.at(-1)!.title,'Source could not be read');
+ await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='repeated_action');
+});
+test('an unexpected source failure still stops the run',async()=>{
+ allowed=true;state.inspect=async()=>{throw new Error('boom');};
+ const file=leadCase('source-crash');globalThis.fetch=async()=>modelReply(JSON.stringify({tool:'inspect',leadId:'a',url:'https://libreria.example.org/',reason:'Check.'}));
+ await assert.rejects(agentStep('owner',file),/boom/);assert.equal(file.agent.status,'error');
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as unknown as {__modelSecurityTest?:typeof state}).__modelSecurityTest;});

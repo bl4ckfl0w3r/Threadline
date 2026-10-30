@@ -14,7 +14,7 @@ Use Node 22.13 or later and the pnpm version pinned in `package.json`.
 
 The development server supports a local preview identity. The deployed preview uses signed, Secure, HttpOnly browser sessions without a login screen. Cases are scoped to the session; supplied identity headers cannot choose another owner. Clearing the session cookie or moving browsers loses access to that workspace, so export important work. Sessions last 30 days and renew during active use. Production fails closed if its signing secret is missing. Cloudflare Access remains an optional alternative mode.
 
-`SOURCE_ALLOWED_HOSTS` controls which public HTTPS hosts the server may read. Source URLs outside that allowlist remain available for manual opening and excerpt attachment.
+`SOURCE_ALLOWED_HOSTS` adds public HTTPS hosts the server may read, alongside each Qloo-returned place's own website. Other source URLs remain available for manual opening and excerpt attachment.
 
 Optional recorded examples are local files under `data/recorded/`. They are excluded from Git; without them the application opens a fictional starter case without recorded results. Fresh cases and live tools do not require recordings.
 
