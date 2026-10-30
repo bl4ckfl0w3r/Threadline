@@ -82,7 +82,7 @@ const originalFetch=globalThis.fetch;
 test('real agent request uses server-only Gemini settings and bounded generation, ignoring client overrides',async()=>{
  allowed=true;reservations=[];attempts=0;results=[];fetches=0;
  globalThis.fetch=async(url,options)=>{
-  fetches++;assert.equal(String(url),config.MODEL_BASE_URL+'/chat/completions');assert.equal(new Headers(options?.headers).get('Authorization'),'Bearer '+config.MODEL_API_KEY);assert.equal(options?.redirect,'error');
+  fetches++;assert.equal(String(url),config.MODEL_BASE_URL+'/chat/completions');assert.equal(new Headers(options?.headers).get('Authorization'),'Bearer '+config.MODEL_API_KEY);assert.equal(options?.redirect,'manual');
   const text=String(options?.body),body=JSON.parse(text);assert.equal(body.model,'gemini-3.8-flash');assert.equal(body.reasoning_effort,'medium');assert.equal(body.max_tokens,3000);assert.doesNotMatch(text,/private-test-provider-key/);
   return Response.json({choices:[{message:{content:JSON.stringify({tool:'ask',reason:'The case has no dates.',question:'What date did the reported incident occur?'})}}]});
  };
@@ -101,5 +101,25 @@ test('failed provider calls are counted once and do not expose provider error bo
  assert.equal(attempts,attemptsBefore+1);assert.equal(results.length,resultsBefore+1);assert.equal(results.at(-1)![4],429);assert.equal(file.agent.status,'error');assert.doesNotMatch(JSON.stringify(file),/private-test-provider-key/);
  const previous=config.MODEL_BASE_URL;config.MODEL_BASE_URL='http://untrusted.test';
  try{await assert.rejects(agentStep('owner',blankCase('insecure-endpoint')),/HTTPS/);assert.equal(attempts,attemptsBefore+1);}finally{config.MODEL_BASE_URL=previous;}
+});
+test('provider redirects are not followed and preserve their HTTP status in one receipt',async()=>{
+ allowed=true;let calls=0;const attemptsBefore=attempts,resultsBefore=results.length;
+ globalThis.fetch=async(_url,options)=>{calls++;assert.equal(options?.redirect,'manual');return new Response(null,{status:307,headers:{Location:'https://untrusted.example/collect'}});};
+ const file=blankCase('redirect');
+ await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='model_redirect');
+ assert.equal(calls,1);assert.equal(attempts,attemptsBefore+1);assert.equal(results.length,resultsBefore+1);assert.equal(results.at(-1)![4],307);assert.equal(file.agent.status,'error');assert.equal(file.activityLog.length,0);
+});
+test('transport, timeout and non-JSON failures return safe actionable errors without retries',async()=>{
+ allowed=true;
+ for(const scenario of [
+  {reply:()=>{throw new TypeError(config.MODEL_API_KEY);},code:'model_transport_failed',status:0},
+  {reply:()=>{throw new DOMException(config.MODEL_API_KEY,'TimeoutError');},code:'model_timeout',status:0},
+  {reply:()=>new Response(config.MODEL_API_KEY,{status:503}),code:'model_response',status:503},
+ ]){
+  const attemptsBefore=attempts,resultsBefore=results.length;let calls=0;
+  globalThis.fetch=async()=>{calls++;return scenario.reply();};const file=blankCase('failure');
+  await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code===scenario.code&&!error.message.includes(config.MODEL_API_KEY));
+  assert.equal(calls,1);assert.equal(attempts,attemptsBefore+1);assert.equal(results.length,resultsBefore+1);assert.equal(results.at(-1)![4],scenario.status);assert.doesNotMatch(JSON.stringify(results.at(-1)),/private-test-provider-key/);assert.equal(file.agent.status,'error');
+ }
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as unknown as {__modelSecurityTest?:typeof state}).__modelSecurityTest;});
