@@ -35,12 +35,21 @@ ON CONFLICT(bucket) DO UPDATE SET used=used+excluded.used
 RETURNING bucket`;
 
 export type ResearchReservation = { remaining: number; buckets: string[]; pendingBucket: string };
-export async function reserveResearchBudget(db:D1Database, owner:string, provider:string, count:number, now=Date.now()):Promise<ResearchReservation> {
+export const MODEL_LIMITS={globalDay:100,ownerDay:24,clientDay:24,clientMinute:12} as const;
+export async function reserveResearchBudget(db:D1Database, owner:string, provider:string, count:number, now=Date.now(), clientKey?:string):Promise<ResearchReservation> {
   if(!Number.isInteger(count)||count<1)throw new Error('A positive request count is required.');
   const interval=Math.floor(now/86400000);
+  // Only server-derived HMACs select a network bucket; unknown clients share one.
+  const client=clientKey&&/^[a-f0-9]{64}$/.test(clientKey)?clientKey:'shared-fallback';
+  const minute=Math.floor(now/60000);
   const limits=[{bucket:`research-owner:${owner}:${interval}`,limit:200,expiresAt:(interval+1)*86400000},
     {bucket:`research-global:${interval}`,limit:1000,expiresAt:(interval+1)*86400000},
-    ...(provider==='model'?[{bucket:`model-global:${interval}`,limit:100,expiresAt:(interval+1)*86400000}]:[])];
+    ...(provider==='model'?[
+      {bucket:`model-global:${interval}`,limit:MODEL_LIMITS.globalDay,expiresAt:(interval+1)*86400000},
+      {bucket:`model-owner:${owner}:${interval}`,limit:MODEL_LIMITS.ownerDay,expiresAt:(interval+1)*86400000},
+      {bucket:`model-client:${client}:${interval}`,limit:MODEL_LIMITS.clientDay,expiresAt:(interval+1)*86400000},
+      {bucket:`model-client-minute:${client}:${minute}`,limit:MODEL_LIMITS.clientMinute,expiresAt:(minute+1)*60000},
+    ]:[])];
   const pendingPrefix=`research-pending:${owner}:`;
   const pendingBucket=pendingPrefix+crypto.randomUUID();
   // This lease only covers the gap before each attempt receipt is inserted.

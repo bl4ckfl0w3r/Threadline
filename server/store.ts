@@ -2,7 +2,7 @@ import type { CaseFile } from '@/lib/contracts';
 import { database, AppError } from './runtime';
 import { reserveResearchBudget, releaseResearchBudget, type ResearchReservation } from './usage-limits';
 export { caseUsage } from './usage-limits';
-export async function reserveRequests(owner:string,provider:string,count:number) { return reserveResearchBudget(database(),owner,provider,count); }
+export async function reserveRequests(owner:string,provider:string,count:number,clientKey?:string) { return reserveResearchBudget(database(),owner,provider,count,Date.now(),clientKey); }
 export async function releaseRequests(reservation:ResearchReservation) { return releaseResearchBudget(database(),reservation); }
 
 export async function listCases(owner:string) {

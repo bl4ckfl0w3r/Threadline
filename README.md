@@ -42,6 +42,10 @@ HTML metadata, Worker responses and static-asset headers request `noindex`. `rob
 
 The recorded demo data, local case database and internal handoff are intentionally absent from a clone. The curated fictional demo lives in the production D1 `demo_assets` table, independent of application builds. `/api/demo` returns an explicit unavailable response when a compatible recording is not installed. Do not add fabricated provider results to make a clean clone look live. The fallback starter is only a blank fictional example.
 
+## Model request protection
+
+Model calls have server-enforced limits of 24 attempts per browser identity per UTC day, 24 per HMAC-hashed network address per UTC day, 12 per network address per minute, and 100 globally per UTC day. Required allowances reserve atomically before a provider request. Changing cases or clearing cookies does not reset the network allowance; unknown network identity uses a shared fallback allowance. Context is capped at 64,000 UTF-8 bytes before charging a request, legacy provider rows are omitted, output is capped at 3,000 tokens, redirects are refused, and calls time out after 60 seconds. Clients cannot supply model credentials, endpoint, model ID or generation limits. Public users can spend within these bounds; quotas do not establish a verified human identity.
+
 ## Repository handling
 
 Keep credentials in server-side configuration and preserve the private-file exclusions in `.gitignore`. Review reachable Git history as well as the current files before publishing. Private repository visibility does not make it appropriate to commit credentials, local case data or research records.
