@@ -47,7 +47,8 @@ export async function agentStep(owner:string,file:CaseFile,request?:Request) {
     ensureAgentRun(file);file.agent.steps++;file.agent.status='working';delete file.agent.stopReason;
     const tags={runId:file.agent.runId!,step:file.agent.steps};
     file.agent.reason='Refresh the supplied example with current Qloo results before reviewing the next enquiry.';
-    file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'agent',title:'Example research refresh',detail:refreshClues.length?'Starting this example investigation requests a fresh Qloo search and the same search without references. This setup step is required by the example workflow; the model chooses subsequent actions.':'Starting this example investigation requests a fresh area/activity search. The reference relationship does not justify forcing a cultural query. The model chooses subsequent actions.',...tags});
+    const caveat=file.referenceRelation==='personal_interests'||!file.referenceRelation?' The references have only a weak or unstated connection to the place; a changed order does not corroborate a visit.':'';
+    file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'agent',title:'Example research refresh',detail:(refreshClues.length?'Starting this example investigation requests a fresh Qloo search and the same search without references. This setup step is required by the example workflow; the model chooses subsequent actions.':'Starting this example investigation requests a fresh area/activity search because no enabled references are supplied. The model chooses subsequent actions.')+caveat,...tags});
     try{
       const outcome=await discover(owner,file,refreshClues,tags,{freshControl:true});
       file.activityLog.push({id:crypto.randomUUID(),at:new Date().toISOString(),kind:'research',title:outcome.title,detail:outcome.detail,receiptId:outcome.receipt,...tags});

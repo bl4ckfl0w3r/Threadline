@@ -34,7 +34,7 @@ test('example refresh runs only on new example investigations, with applicabilit
  const f=completed();f.mode='recorded';f.queries=[{id:'saved'} as never];f.referenceRelation='chose_place';
  f.clues=[{id:'ref',label:'Film',kind:'movie',enabled:true,provenance:'supplied_interest',entity:{id:'film',name:'Film',kind:'movie'}}];startAgentRun(f);
  assert.deepEqual(exampleRefreshClueIds(f),['ref']);f.agent.steps=1;assert.equal(exampleRefreshClueIds(f),undefined);startAgentRun(f);
- f.referenceRelation='personal_interests';assert.deepEqual(exampleRefreshClueIds(f),[]);delete f.referenceRelation;assert.deepEqual(exampleRefreshClueIds(f),[]);f.referenceRelation='observed_at_place';assert.deepEqual(exampleRefreshClueIds(f),['ref']);
+ f.referenceRelation='personal_interests';assert.deepEqual(exampleRefreshClueIds(f),['ref']);delete f.referenceRelation;assert.deepEqual(exampleRefreshClueIds(f),['ref']);f.referenceRelation='observed_at_place';assert.deepEqual(exampleRefreshClueIds(f),['ref']);
  delete f.clues[0].entity;assert.equal(exampleRefreshClueIds(f),undefined);f.clues=[];f.mode='live';assert.equal(exampleRefreshClueIds(f),undefined);f.mode='recorded';
  f.agent.status='complete';f.enquiry!.response=reply;continueAgentRun(f);assert.equal(f.agent.continuedFromEnquiry,true);assert.equal(exampleRefreshClueIds(f),undefined);
  startAgentRun(f);assert.deepEqual(exampleRefreshClueIds(f),[]);f.queries=[];assert.equal(exampleRefreshClueIds(f),undefined);

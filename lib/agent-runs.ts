@@ -30,7 +30,7 @@ export function exampleRefreshClueIds(file:CaseFile):string[]|undefined {
   if(file.mode!=='recorded'||file.agent.steps!==0||file.agent.continuedFromEnquiry||!file.queries.length)return;
   const clues=file.clues.filter(c=>c.enabled);
   if(clues.some(c=>!c.entity))return;
-  // Personal interests alone do not justify forcing a cultural query.
-  if(file.referenceRelation==='personal_interests'||!file.referenceRelation)return [];
+  // Re-run the supplied comparison even for legacy examples without a stated
+  // reference relationship. Its weakness stays visible; no visit is inferred.
   return clues.map(c=>c.id);
 }
