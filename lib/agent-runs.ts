@@ -21,5 +21,16 @@ export function continueAgentRun(file:CaseFile) {
   if(!fresh.length)throw new Error('Record a new response to this enquiry before continuing.');
   fresh.forEach(r=>reviewed.add(r.id));
   if(reviewed.size>5000)throw new Error('The response review history is full. Export this case before continuing.');
-  startAgentRun(file);file.agent.reviewedResponseIds=[...reviewed];
+  startAgentRun(file);file.agent.reviewedResponseIds=[...reviewed];file.agent.continuedFromEnquiry=true;
+}
+
+// A judge can start from the supplied example. Refresh it once per explicit
+// new run; continuation from an answer must keep following that new evidence.
+export function exampleRefreshClueIds(file:CaseFile):string[]|undefined {
+  if(file.mode!=='recorded'||file.agent.steps!==0||file.agent.continuedFromEnquiry||!file.queries.length)return;
+  const clues=file.clues.filter(c=>c.enabled);
+  if(clues.some(c=>!c.entity))return;
+  // Personal interests alone do not justify forcing a cultural query.
+  if(file.referenceRelation==='personal_interests'||!file.referenceRelation)return [];
+  return clues.map(c=>c.id);
 }

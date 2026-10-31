@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {draftOverclaims,parseModelJson} from '../lib/agent-replies.ts';
+import {draftOverclaims,parseModelJson,readModelReply} from '../lib/agent-replies.ts';
 import {isLeadHost} from '../lib/source-hosts.ts';
 
 test('model JSON is read plain, fenced or with surrounding text, and truncated JSON is refused',()=>{
@@ -8,6 +8,15 @@ test('model JSON is read plain, fenced or with surrounding text, and truncated J
  assert.deepEqual(parseModelJson('```json\n{"a":1}\n```'),{a:1});
  assert.deepEqual(parseModelJson('Here it is: {"a":1} done'),{a:1});
  for(const bad of ['{"a":','not json','','```json\n{"a":\n```'])assert.throws(()=>parseModelJson(bad));
+});
+test('model reply metadata tolerates malformed envelopes and exposes only fixed stop labels',()=>{
+ for(const body of [null,[],{}, {choices:null},{choices:[null]},{choices:[{message:{content:{text:'wrong shape'}}}]}]){
+  assert.equal(readModelReply(body).content,undefined);assert.equal(readModelReply(body).finishReason,'missing');
+ }
+ assert.deepEqual(readModelReply({choices:[{finish_reason:'length',message:{content:'{}'}}]}),{content:'{}',finishReason:'length',refused:false});
+ assert.equal(readModelReply({choices:[{finish_reason:'secret-provider-detail'}]}).finishReason,'unknown');
+ assert.equal(readModelReply({choices:[{finish_reason:'content_filter'}]}).refused,true);
+ assert.equal(readModelReply({choices:[{finish_reason:'stop',message:{refusal:'Cannot comply'}}]}).refused,true);
 });
 test('drafts asserting unverified links are flagged, including the wording found in testing',()=>{
  for(const claim of [

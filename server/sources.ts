@@ -24,16 +24,21 @@ export async function inspect(owner:string,file:CaseFile,leadId:string,value:str
     }
     if(!response || !response.ok)throw new AppError('This source could not be read. You can open it and attach an excerpt.',502,'source_unavailable');
     if(!/text\/html|text\/plain/.test(response.headers.get('content-type')||''))throw new AppError('Attach an excerpt for this source format.',422,'source_format');
-    // Only the start of a page is kept, so a long page is read in part rather than refused.
+    // Cap retained bytes even if a server sends one oversized chunk. A partial
+    // capture must remain visible in the receipt, source note and agent context.
+    const byteLimit=700000,textLimit=32000;
     const reader=response.body?.getReader();if(!reader)throw new Error('Empty response');const chunks:Uint8Array[]=[];let size=0;
-    while(size<700000){const {done,value:chunk}=await reader.read();if(done)break;size+=chunk.byteLength;chunks.push(chunk);}
-    if(size>=700000)await reader.cancel();
+    while(size<byteLimit){const {done,value:chunk}=await reader.read();if(done)break;const kept=chunk.slice(0,byteLimit-size);size+=kept.byteLength;chunks.push(kept);}
+    const byteLimitReached=size===byteLimit;
+    if(byteLimitReached)await reader.cancel();
     const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
     const raw=new TextDecoder().decode(bytes);
-    const text=textFromHTML(raw).slice(0,32000);const title=textFromHTML(raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||lead.name).slice(0,200);
+    const pageText=textFromHTML(raw),text=pageText.slice(0,textLimit),textLimitReached=pageText.length>textLimit;
+    const partial=byteLimitReached||textLimitReached;
+    const title=textFromHTML(raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||lead.name).slice(0,200);
     if(!text)throw new AppError('This page has no readable text. Open it and attach an excerpt instead.',422,'source_format');
-    await endReceipt(owner,file.id,'source',receipt,status,{url:url.href,title,text});recorded=true;
-    file.sources.push({id:crypto.randomUUID(),leadId,title,url:url.href,excerpt:text.slice(0,1800),kind:'public_page',mode:'live',capturedAt:new Date().toISOString(),note:'Page text retrieved. Review the relevant passage, date and publisher before relying on it; a page does not establish attendance.',receiptId:receipt});
-    return {receipt,title:'Source captured',detail:`${title}. Review the passage and note what it supports.`};
+    await endReceipt(owner,file.id,'source',receipt,status,{url:url.href,title,text,capture:{bytesRead:size,byteLimitReached,textLimitReached,partial}});recorded=true;
+    file.sources.push({id:crypto.randomUUID(),leadId,title,url:url.href,excerpt:text.slice(0,1800),kind:'public_page',mode:'live',capturedAt:new Date().toISOString(),note:`${partial?'Partial page capture: a read limit was reached; later content was not reviewed.':'Page text retrieved.'} The case excerpt contains only the first 1,800 characters. Review the relevant passage, date and publisher before relying on it; a page does not establish attendance.`,receiptId:receipt});
+    return {receipt,title:partial?'Source partially captured':'Source captured',detail:`${title}. ${partial?'A read limit was reached; later content was not reviewed. ':''}Review the passage and note what it supports.`};
   }catch(error){if(!recorded)await endReceipt(owner,file.id,'source',receipt,status,{error:'Source retrieval failed; no fact established.'});if(error instanceof AppError)throw error;throw new AppError('The page could not be read. Attach an excerpt to continue.',502,'source_unavailable');}
 }
