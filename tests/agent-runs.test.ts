@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {blankCase,draftEnquiry,applyAgentEnquiry,actionSchema} from '../lib/domain.ts';
-import {ensureAgentRun,startAgentRun,continueAgentRun} from '../lib/agent-runs.ts';
+import {ensureAgentRun,startAgentRun,continueAgentRun,exampleRefreshClueIds} from '../lib/agent-runs.ts';
 import {agentRunUsage} from '../server/usage-limits.ts';
 import {serializeModelContext} from '../server/model-context.ts';
 
@@ -29,6 +29,15 @@ test('continued model context carries actual passages and a later enquiry preser
  const context=JSON.parse(serializeModelContext(f));assert.equal(context.enquiry.response.passage,reply.passage);assert.equal(context.enquiry.response.unresolved,reply.unresolved);
  const next={...draftEnquiry(f,f.leads[1]),question:'Which consignment lists the serial?'};f.enquiry=applyAgentEnquiry(f.enquiry,next);
  assert.equal(f.enquiry.history![0].enquiry.response!.passage,reply.passage);assert.equal(f.enquiry.response,undefined);
+});
+test('example refresh runs only on new example investigations, with applicability and confirmation respected',()=>{
+ const f=completed();f.mode='recorded';f.queries=[{id:'saved'} as never];f.referenceRelation='chose_place';
+ f.clues=[{id:'ref',label:'Film',kind:'movie',enabled:true,provenance:'supplied_interest',entity:{id:'film',name:'Film',kind:'movie'}}];startAgentRun(f);
+ assert.deepEqual(exampleRefreshClueIds(f),['ref']);f.agent.steps=1;assert.equal(exampleRefreshClueIds(f),undefined);startAgentRun(f);
+ f.referenceRelation='personal_interests';assert.deepEqual(exampleRefreshClueIds(f),['ref']);delete f.referenceRelation;assert.deepEqual(exampleRefreshClueIds(f),['ref']);f.referenceRelation='observed_at_place';assert.deepEqual(exampleRefreshClueIds(f),['ref']);
+ delete f.clues[0].entity;assert.equal(exampleRefreshClueIds(f),undefined);f.clues=[];f.mode='live';assert.equal(exampleRefreshClueIds(f),undefined);f.mode='recorded';
+ f.agent.status='complete';f.enquiry!.response=reply;continueAgentRun(f);assert.equal(f.agent.continuedFromEnquiry,true);assert.equal(exampleRefreshClueIds(f),undefined);
+ startAgentRun(f);assert.deepEqual(exampleRefreshClueIds(f),[]);f.queries=[];assert.equal(exampleRefreshClueIds(f),undefined);
 });
 test('run usage includes both paired attempts, source/model failures and missing results, with owner isolation and no raw data',async()=>{
  const sql=new DatabaseSync(':memory:');sql.exec('CREATE TABLE receipts(id TEXT PRIMARY KEY,case_id TEXT,owner TEXT,provider TEXT,phase TEXT,request TEXT,status INTEGER,created_at TEXT)');

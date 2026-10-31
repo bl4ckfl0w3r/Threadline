@@ -10,7 +10,7 @@ import { agentSteps,hasNewEnquiryResponse,requestCounts } from './agent-steps.ts
 
 const relationLabel={chose_place:'They chose the place',observed_at_place:'Seen or heard at the place',personal_interests:'Personal interests only'} as const;
 
-const toolLabel:Record<string,string>={resolve:'Look up a reference in Qloo',discover:'Search Qloo for places',inspect:'Read a public source',ask:'Ask you',finish:'Draft the next enquiry',run_control:'Complete the Qloo comparison',model:'Model step'};
+const toolLabel:Record<string,string>={refresh:'Refresh Qloo results · example setup',resolve:'Look up a reference in Qloo',discover:'Search Qloo for places',inspect:'Read a public source',ask:'Ask you',finish:'Draft the next enquiry',run_control:'Complete the Qloo comparison',model:'Model step'};
 const applicability={
   chose_place:'They chose the place, so taste may help order the checks. Nothing shows it drove the booking.',
   observed_at_place:'The references were seen or heard at the place. Their associations may suggest an order for checking records; they do not identify the place.',

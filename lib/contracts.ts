@@ -56,7 +56,7 @@ export type CaseFile = {
   startDate: string; endDate: string; activity: string; category: 'book_store' | 'all_places';
   mode: 'live' | 'recorded'; createdAt: string; updatedAt: string; clues: Clue[];
   leads: Lead[]; queries: Query[]; sources: Source[]; enquiry?: Enquiry; activityLog: Activity[];
-  agent: { runId?:string; startedAt?:string; stopReason?:'ask'|'limit'|'manual'|'error'; pendingQuestion?:{id:string;question:string;reason:string;inputFingerprint:string}; reviewedResponseIds?:string[]; steps: number; status: 'idle' | 'working' | 'stopped' | 'complete' | 'error'; reason: string };
+  agent: { runId?:string; startedAt?:string; continuedFromEnquiry?:boolean; stopReason?:'ask'|'limit'|'manual'|'error'; pendingQuestion?:{id:string;question:string;reason:string;inputFingerprint:string}; reviewedResponseIds?:string[]; steps: number; status: 'idle' | 'working' | 'stopped' | 'complete' | 'error'; reason: string };
 };
 export type Services = { qloo: boolean; model: boolean; storage: boolean; signedIn: boolean; modelName?: string };
 export type CaseSummary = Pick<CaseFile, 'id' | 'title' | 'mode' | 'updatedAt'>;

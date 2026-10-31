@@ -64,14 +64,14 @@ test('model drafts cannot invent recorded replies or discard answered enquiries'
 });
 
 const config={MODEL_API_KEY:'private-test-provider-key',MODEL_BASE_URL:'https://generativelanguage.googleapis.com/v1beta/openai',MODEL_NAME:'gemini-3.8-flash',MODEL_REASONING_EFFORT:'medium',SESSION_SIGNING_KEY:'s'.repeat(64)};
-let allowed=true,reservations:unknown[][]=[],attempts=0,results:unknown[][]=[],fetches=0;
-const state={bindings:()=>config,reserveRequests:async(...args:unknown[])=>{if(!allowed)throw new Error('Model allowance exhausted');reservations.push(args);return {remaining:1,buckets:[],pendingBucket:'pending'};},releaseRequests:async()=>{},beginReceipt:async(...args:unknown[])=>{attempts++;(args[4] as {remaining:number}).remaining--;return 'model-receipt';},endReceipt:async(...args:unknown[])=>{results.push(args);},inspect:async(..._args:unknown[]):Promise<{title:string;detail:string;receipt?:string}>=>{throw new Error('Unexpected tool');}};
+let allowed=true,reservations:unknown[][]=[],attempts=0,results:unknown[][]=[],fetches=0,receiptRequests:unknown[][]=[];
+const state={bindings:()=>config,reserveRequests:async(...args:unknown[])=>{if(!allowed)throw new Error('Model allowance exhausted');reservations.push(args);return {remaining:1,buckets:[],pendingBucket:'pending'};},releaseRequests:async()=>{},beginReceipt:async(...args:unknown[])=>{attempts++;receiptRequests.push(args);(args[4] as {remaining:number}).remaining--;return `model-receipt-${attempts}`;},endReceipt:async(...args:unknown[])=>{results.push(args);},discover:async(..._args:unknown[]):Promise<{title:string;detail:string;receipt?:string}>=>{throw new Error('Unexpected tool');},inspect:async(..._args:unknown[]):Promise<{title:string;detail:string;receipt?:string}>=>{throw new Error('Unexpected tool');}};
 (globalThis as unknown as {__modelSecurityTest:typeof state}).__modelSecurityTest=state;
 const hooks=registerHooks({resolve(specifier,context,next){
  if(context.parentURL?.endsWith('/server/agent.ts')){
   if(specifier==='./runtime')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent("export class AppError extends Error{constructor(message,status=400,code='invalid_request'){super(message);this.status=status;this.code=code;}}export const bindings=()=>globalThis.__modelSecurityTest.bindings();")};
   if(specifier==='./store')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent(['beginReceipt','endReceipt','reserveRequests','releaseRequests'].map(name=>`export const ${name}=(...args)=>globalThis.__modelSecurityTest.${name}(...args);`).join('\n'))};
-  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=resolveClue;export const runControl=resolveClue;export const inspect=(...args)=>globalThis.__modelSecurityTest.inspect(...args);')};
+  if(specifier==='./qloo'||specifier==='./sources')return {shortCircuit:true,url:'data:text/javascript,'+encodeURIComponent('export const resolveClue=()=>{throw new Error("Unexpected tool")};export const discover=(...args)=>globalThis.__modelSecurityTest.discover(...args);export const runControl=resolveClue;export const inspect=(...args)=>globalThis.__modelSecurityTest.inspect(...args);')};
   if(specifier==='@/lib/domain')return next('../lib/domain.ts',context);
   if(specifier==='./model-context')return next('./model-context.ts',context);
   if(specifier==='./usage-limits')return next('./usage-limits.ts',context);
@@ -141,8 +141,40 @@ test('a reply cut off at the length limit is retried once with lower reasoning a
 test('two unusable replies stop the step and name the cut-off without running a tool',async()=>{
  allowed=true;let calls=0;globalThis.fetch=async()=>{calls++;return modelReply('{"tool":"ask","rea','length');};
  const file=blankCase('cut-off-twice');
- await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='model_response'&&/cut off/.test(error.message));
+ await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='model_response'&&/cut off.*finish_reason: length; attempt 2 of 2/.test(error.message));
  assert.equal(calls,2);assert.equal(file.agent.status,'error');assert.equal(file.activityLog.length,0);
+});
+test('an apparently complete action with a length finish reason is retried and never applied',async()=>{
+ allowed=true;let calls=0;const file=blankCase('parseable-cut-off');
+ globalThis.fetch=async()=>{calls++;return modelReply(JSON.stringify({tool:'ask',reason:'Need a date.',question:calls===1?'Incomplete first action':'Which date?'}),calls===1?'length':'stop');};
+ await agentStep('owner',file);assert.equal(calls,2);assert.equal(file.agent.pendingQuestion?.question,'Which date?');assert.equal(file.activityLog.length,1);
+});
+test('malformed envelopes fail safely, spend at most two attempts and include a safe finish reason',async()=>{
+ allowed=true;
+ for(const body of [null,{choices:[{message:{content:{text:'bad shape'}}}]},{choices:[{finish_reason:config.MODEL_API_KEY,message:{content:'{"tool":"ask","reason":"Missing date","question":"When?"}'}}]}]){
+  let calls=0;globalThis.fetch=async()=>{calls++;return Response.json(body);};const file=blankCase('bad-envelope');
+  await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&/finish_reason: (missing|unknown); attempt 2 of 2/.test(error.message)&&!error.message.includes(config.MODEL_API_KEY));
+  assert.equal(calls,2);assert.equal(file.agent.status,'error');assert.equal(file.activityLog.length,0);
+ }
+});
+test('filtered or explicitly refused replies stop without retrying or applying their JSON',async()=>{
+ allowed=true;
+ for(const reply of [{finish_reason:'content_filter',message:{content:'{"tool":"ask","reason":"Missing date","question":"When?"}'}},{finish_reason:'stop',message:{refusal:'Provider refusal details'}}]){
+  let calls=0;globalThis.fetch=async()=>{calls++;return Response.json({choices:[reply]});};const file=blankCase('refused');
+  await assert.rejects(agentStep('owner',file),(error:unknown)=>error instanceof Error&&'code' in error&&error.code==='model_refused'&&/finish_reason: (content_filter|stop)/.test(error.message)&&!error.message.includes('Provider refusal details'));
+  assert.equal(calls,1);assert.equal(file.activityLog.length,0);assert.equal(file.agent.status,'error');
+ }
+});
+test('retry attempts have distinct receipts, share a run step and record actual generation settings',async()=>{
+ allowed=true;receiptRequests=[];const resultsBefore=results.length,reservationsBefore=reservations.length;let calls=0;
+ globalThis.fetch=async()=>{calls++;return calls===1?modelReply('unreadable'):modelReply('{"tool":"ask","reason":"Missing date","question":"When?"}');};
+ const file=blankCase('counted-retry');await agentStep('owner',file);
+ assert.equal(calls,2);assert.equal(reservations.length,reservationsBefore+2);const finished=results.slice(resultsBefore);assert.equal(finished.length,2);assert.notEqual(finished[0][3],finished[1][3]);
+ for(const [i,args] of receiptRequests.entries()){
+  assert.deepEqual(args[5],{runId:file.agent.runId,step:1});const request=args[3] as {maxTokens:number;reasoningEffort:string;attempt:number};
+  assert.equal(request.maxTokens,8000);assert.equal(request.reasoningEffort,i===0?'medium':'low');assert.equal(request.attempt,i+1);
+ }
+ assert.equal(file.agent.steps,1);
 });
 test('a fenced model reply is accepted without spending a retry',async()=>{
  allowed=true;let calls=0;globalThis.fetch=async()=>{calls++;return modelReply('```json\n{"tool":"ask","reason":"Dates are missing.","question":"What date?"}\n```');};
@@ -153,6 +185,12 @@ test('a retry the allowance cannot cover reports the first failure and makes no 
  const file=blankCase('no-allowance');
  try{await assert.rejects(agentStep('owner',file),/unreadable action/);assert.equal(calls,1);}finally{allowed=true;}
 });
+test('a slow first reply leaves a bounded retry budget before research and case saving',async()=>{
+ allowed=true;const originalNow=Date.now,originalTimeout=AbortSignal.timeout,timeouts:number[]=[];let now=1000,calls=0;
+ Date.now=()=>now;AbortSignal.timeout=(milliseconds:number)=>{timeouts.push(milliseconds);return originalTimeout(milliseconds);};
+ globalThis.fetch=async()=>{calls++;if(calls===1){now+=59000;return modelReply('unreadable');}return modelReply('{"tool":"ask","reason":"Need dates","question":"When?"}');};
+ try{await agentStep('owner',blankCase('slow-retry'));assert.equal(calls,2);assert.deepEqual(timeouts,[60000,21000]);}finally{Date.now=originalNow;AbortSignal.timeout=originalTimeout;}
+});
 test('an overclaiming draft is sent back once and a corrected draft is kept',async()=>{
  allowed=true;const bodies:{messages:{content:string}[]}[]=[];const file=leadCase('overclaim');const fixed='Could you confirm whether a reading took place at your venue on 15 October? A supplied worksheet lists RP-140, not RP-104.';
  globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(String(options?.body)));return modelReply(finishing(file,bodies.length===1?'I am writing about a reading hosted at your venue on 15 October, and wondered if you hold a record.':fixed));};
@@ -162,6 +200,11 @@ test('a draft that overclaims twice is replaced by the neutral draft and says so
  allowed=true;let calls=0;const file=leadCase('overclaim-twice');
  globalThis.fetch=async()=>{calls++;return modelReply(finishing(file,'Your staff received portfolio RP-104 from our courier.'));};
  await agentStep('owner',file);assert.equal(calls,2);assert.doesNotMatch(file.enquiry!.draft,/received/);assert.match(file.enquiry!.draft,/remains unresolved/);assert.equal(file.agent.status,'complete');assert.match(file.activityLog.at(-1)!.detail,/neutral draft/);
+});
+test('a failed retry cannot resurrect an overclaiming enquiry from an earlier reply',async()=>{
+ allowed=true;let calls=0;const file=leadCase('stale-fallback');
+ globalThis.fetch=async()=>{calls++;return calls===1?modelReply(finishing(file,'Your staff received portfolio RP-104 from our courier.')):modelReply('{"tool":"finish"','length');};
+ await assert.rejects(agentStep('owner',file),/finish_reason: length; attempt 2 of 2/);assert.equal(calls,2);assert.equal(file.enquiry,undefined);assert.equal(file.agent.status,'error');assert.equal(file.activityLog.length,0);
 });
 test('the agent may read a place website with or without www, but not an unrelated host',async()=>{
  allowed=true;const read:unknown[][]=[];state.inspect=async(...args)=>{read.push(args);return {title:'Source captured',detail:'Page',receipt:'r'};};
@@ -181,5 +224,18 @@ test('an unexpected source failure still stops the run',async()=>{
  allowed=true;state.inspect=async()=>{throw new Error('boom');};
  const file=leadCase('source-crash');globalThis.fetch=async()=>modelReply(JSON.stringify({tool:'inspect',leadId:'a',url:'https://libreria.example.org/',reason:'Check.'}));
  await assert.rejects(agentStep('owner',file),/boom/);assert.equal(file.agent.status,'error');
+});
+test('starting the supplied example refreshes Qloo in the current run before spending a model call',async()=>{
+ allowed=true;const file=leadCase('refresh-example');file.mode='recorded';file.referenceRelation='chose_place';file.queries=[{id:'saved'} as never];
+ file.clues=[{id:'film',label:'Film',kind:'movie',enabled:true,provenance:'supplied_interest',entity:{id:'film-id',name:'Film',kind:'movie'}}];
+ const calls:unknown[][]=[];state.discover=async(...args)=>{calls.push(args);return {title:'Five places returned',detail:'Fresh Qloo comparison.',receipt:'fresh-qloo'};};
+ const modelAttemptsBefore=attempts;globalThis.fetch=async()=>{throw new Error('No model should be called during the refresh');};
+ await agentStep('owner',file);assert.equal(calls.length,1);assert.deepEqual(calls[0][2],['film']);assert.deepEqual(calls[0][3],{runId:file.agent.runId,step:1});assert.deepEqual(calls[0][4],{freshControl:true});assert.equal(attempts,modelAttemptsBefore);assert.equal(file.agent.status,'working');assert.equal(file.activityLog[0].title,'Example research refresh');assert.equal(file.activityLog[1].receiptId,'fresh-qloo');
+ globalThis.fetch=async()=>modelReply('{"tool":"ask","reason":"Need dates","question":"When?"}');await agentStep('owner',file);assert.equal(calls.length,1);assert.equal(file.agent.steps,2);assert.equal(file.agent.pendingQuestion?.question,'When?');
+});
+test('a failed example refresh is visible and cannot silently draft from old research',async()=>{
+ const file=leadCase('failed-refresh');file.mode='recorded';file.queries=[{id:'saved'} as never];state.discover=async()=>{throw new Error('Qloo allowance exhausted');};
+ globalThis.fetch=async()=>{throw new Error('No model should be called after a failed refresh');};
+ await assert.rejects(agentStep('owner',file),/Qloo allowance exhausted/);assert.equal(file.agent.status,'error');assert.equal(file.enquiry,undefined);assert.equal(file.agent.steps,1);
 });
 test.after(()=>{globalThis.fetch=originalFetch;delete (globalThis as unknown as {__modelSecurityTest?:typeof state}).__modelSecurityTest;});

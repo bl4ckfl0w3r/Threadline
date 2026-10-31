@@ -35,6 +35,12 @@ test('seeded discovery reserves both calls before requesting; exact same-day con
  const sent=attempts as Array<{params:Record<string,string>}>;assert.equal(sent[0].params['signal.interests.entities'],'entity-film');assert.equal(sent[1].params['signal.interests.entities'],undefined);
  responses([200]);await discover('owner',f,['film']);assert.deepEqual(reservations,[2,1]);assert.equal(attempts.length,3);
 });
+test('an explicit example refresh requests a new seeded/control pair even when today’s control exists',async()=>{
+ reset();responses([200,200]);const f=file();await discover('owner',f,['film']);const oldControl=f.queries[0].id;
+ const run={runId:'10000000-0000-4000-8000-000000000001',step:1};responses([200,200]);const fresh=await discover('owner',f,['film'],run,{freshControl:true});
+ assert.deepEqual(reservations,[2,2]);assert.equal(attempts.length,4);assert.equal(f.queries.length,4);assert.notEqual(fresh.query.controlQueryId,oldControl);assert.deepEqual(contexts.slice(-2),[run,run]);
+ const params=attempts as Array<{params:Record<string,string>}>;assert.equal(params[2].params['signal.interests.entities'],'entity-film');assert.equal(params[3].params['signal.interests.entities'],undefined);assert.equal(f.queries.at(-1)!.id,fresh.query.id);
+});
 test('failed control leaves seeded result and both receipts, and retry requests only the original scope control',async()=>{
  reset();responses([200,500]);const f=file();await assert.rejects(discover('owner',f,['film']),/Receipt:/);
  assert.equal(f.queries.length,1);assert.equal(f.queries[0].clueIds[0],'film');assert.equal(f.queries[0].controlQueryId,undefined);assert.match(f.queries[0].warnings[0],/Comparison incomplete/);assert.equal(attempts.length,2);assert.equal(results.length,2);

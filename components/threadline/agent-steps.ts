@@ -1,12 +1,13 @@
 import type {CaseFile,CaseUsage,AgentRunSummary} from '../../lib/contracts.ts';
 
 export type AgentStep={id:string;step?:number;tool:string;reason:string;result?:{title:string;detail:string};error?:string};
+const toolName=(title:string)=>title==='Example research refresh'?'refresh':title.replace(/^Agent chose /,'');
 /** Only explicit run/step metadata can associate a tool outcome with a decision. */
 export function agentSteps(f:CaseFile):AgentStep[] {
-  if(!f.agent.runId)return f.activityLog.filter(a=>a.kind==='agent').slice(-12).map(a=>({id:a.id,tool:a.title.replace(/^Agent chose /,''),reason:a.detail}));
+  if(!f.agent.runId)return f.activityLog.filter(a=>a.kind==='agent').slice(-12).map(a=>({id:a.id,tool:toolName(a.title),reason:a.detail}));
   const steps:AgentStep[]=[];
   for(const a of f.activityLog.filter(a=>a.runId===f.agent.runId)){
-    if(a.kind==='agent')steps.push({id:a.id,step:a.step,tool:a.title.replace(/^Agent chose /,''),reason:a.detail});
+    if(a.kind==='agent')steps.push({id:a.id,step:a.step,tool:toolName(a.title),reason:a.detail});
     else if(a.kind==='research'||a.kind==='error'){
       let target=a.step===undefined?undefined:steps.find(s=>s.step===a.step);
       if(!target&&a.kind==='error'){target={id:a.id,step:a.step,tool:'model',reason:'The step did not produce a usable result.'};steps.push(target);}

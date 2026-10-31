@@ -87,7 +87,8 @@ test('agent outcomes and failures are matched by run and step, never by adjacent
  ];
  const steps=agentSteps(file);assert.deepEqual(steps.map(s=>s.id),['a1','a2']);assert.equal(steps[0].result?.title,'Five places');assert.equal(steps[1].error,'Control unavailable');
  file.activityLog.push({id:'no-choice',at,kind:'error',title:'Research needs attention',detail:'Invalid model action',runId:'current',step:3});assert.equal(agentSteps(file).at(-1)?.tool,'model');
- delete file.agent.runId;const legacy=agentSteps(file);assert.deepEqual(legacy.map(s=>s.id),['old','a1','a2']);assert.ok(legacy.every(s=>!s.result&&!s.error&&s.step===undefined));
+ file.activityLog.push({id:'refresh',at,kind:'agent',title:'Example research refresh',detail:'Required example setup; later choices belong to the model.',runId:'current',step:4});assert.equal(agentSteps(file).at(-1)?.tool,'refresh');
+ delete file.agent.runId;const legacy=agentSteps(file);assert.deepEqual(legacy.map(s=>s.id),['old','a1','a2','refresh']);assert.ok(legacy.every(s=>!s.result&&!s.error&&s.step===undefined));
 });
 
 test('agent panel uses actual stop reasons, run usage and explicit legacy fallback',()=>{

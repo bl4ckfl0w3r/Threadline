@@ -9,6 +9,20 @@ export function parseModelJson(content:string):unknown {
   return JSON.parse(text.slice(start,end+1));
 }
 
+const finishReasons=['stop','length','content_filter','tool_calls','function_call'] as const;
+type FinishReason=typeof finishReasons[number]|'missing'|'unknown';
+const record=(value:unknown):Record<string,unknown>|undefined=>value!==null&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;
+
+// Provider metadata is untrusted too. Only fixed labels may enter public errors;
+// the original envelope and token usage remain in the server-only receipt.
+export function readModelReply(body:unknown):{content?:string;finishReason:FinishReason;refused:boolean} {
+  const choices=record(body)?.choices,reply=record(Array.isArray(choices)?choices[0]:undefined),message=record(reply?.message);
+  const reason=reply?.finish_reason;
+  const finishReason:FinishReason=reason==null?'missing':finishReasons.includes(reason as typeof finishReasons[number])?reason as typeof finishReasons[number]:'unknown';
+  return {content:typeof message?.content==='string'?message.content:undefined,finishReason,
+    refused:finishReason==='content_filter'||(typeof message?.refusal==='string'&&message.refusal.trim().length>0)};
+}
+
 const place='(?:your|this|the)\\s+(?:[a-z-]+\\s+)?(?:venue|premises|shop|store|bookshop|cinema|theatre|gallery|bar|cafe|site|branch|location|museum)';
 const overclaims=[
   new RegExp(`\\b(?:hosted|held|staged|took place|happened|occurred)\\s+(?:at|in|by)\\s+(?:${place}|you\\b)`,'i'),
